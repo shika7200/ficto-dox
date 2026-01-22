@@ -53,20 +53,25 @@ export async function FictioFill(inputJson: InputJson): Promise<{ success: true 
     }
   }
 
-  // Заполняем каждую секцию токенами #2…#N-1
+  // Получаем все ключи секций, включая новую секцию 11
   const sectionKeys = Object.keys(dataMapping) as Array<keyof typeof dataMapping>
+  
+  // Заполняем каждую секцию по порядку
   for (
-    let idx = 1;
-    idx < initTokens.length - 1 && idx - 1 < sectionKeys.length;
+    let idx = 0;
+    idx < initTokens.length - 1 && idx < sectionKeys.length;
     idx++
   ) {
     const token = initTokens[idx]
-    const sectionKey = sectionKeys[idx - 1]
+    const sectionKey = sectionKeys[idx]
+    
+    // Создаем запрос на основе ключа секции
     const requestData = createSectionRequest(
       sectionKey,
       inputJson
     ) as SaveDataRequestGeneric
-
+    
+    // Отправляем данные
     await api.saveData(token, requestData)
   }
 
