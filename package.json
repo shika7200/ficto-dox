@@ -8,7 +8,8 @@
     "server": "bun run  src/ApiController.ts",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "check-accounts": "bun run src/checkNewAccounts.ts"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.74.4",

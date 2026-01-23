@@ -1,5 +1,7 @@
 import { dataMapping } from "./mapping";
 
+export type ReportType = "report17" | "form_1od_2025";
+
 /**
  * Строка таблицы для сохранения данных.
  * panel_id не включается в каждую строку, он задаётся на уровне запроса.
@@ -93,5 +95,7 @@ export interface InputJson {
   fictoLogin: string;
   fictoPass: string;
   documentId: string;
+  reportType?: ReportType;
+  completeDocument?: boolean;
   factors: Record<string, string>;
 }

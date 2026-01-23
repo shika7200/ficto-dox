@@ -1,7 +1,7 @@
 import { ApiService } from "./ApiService";
 
 /**
- * Обрабатывает массив объектов с email и password.
+ * Обрабатывает массив объектов с login (может быть email или логин) и password.
  *
  * Для каждого элемента выполняется:
  * - Авторизация (login) с использованием ApiService.
@@ -10,19 +10,24 @@ import { ApiService } from "./ApiService";
  *
  * Если для какого-либо пользователя возникает ошибка, в результат добавляется объект с полем error.
  *
- * @param users - Массив объектов, содержащих email и password.
+ * @param users - Массив объектов, содержащих login (email или логин) и password.
+ *                Для обратной совместимости также принимает поле email вместо login.
  * @returns Массив объектов с результатом для каждого пользователя.
  */
-export async function processAllUsers(users: { email: string; password: string }[]): Promise<any[]> {
+export async function processAllUsers(users: ({ login: string; password: string } | { email: string; password: string })[]): Promise<any[]> {
   const apiService = new ApiService();
 
   const userPromises = users.map(async (user) => {
-    if (!user.email || !user.password) {
-      return { email: user.email || null, error: "Отсутствует email или пароль" };  
+    // Поддерживаем оба варианта: login и email (для обратной совместимости)
+    const login = 'login' in user ? user.login : user.email;
+    
+    if (!login || !user.password) {
+      return { login: login || null, error: "Отсутствует login или пароль" };  
     }
 
     try {
-      const tokens = await apiService.login(user.email, user.password);
+      // Передаем login в метод login (API принимает и email, и логин в поле email)
+      const tokens = await apiService.login(login, user.password);
       
       // Получение UUID с дополнительным контекстом ошибки
       const uuid = await apiService.getUuid(tokens.access_token);
@@ -31,14 +36,14 @@ export async function processAllUsers(users: { email: string; password: string }
       const initTokens = await apiService.getInitTokens(uuid, tokens.access_token);
       
       return {
-        email: user.email,
+        login,
         access_token: tokens.access_token,
         refresh_token: tokens.refresh_token,
         uuid,
         initTokens
       };
     } catch (error: any) {
-      return { email: user.email, error: error.message || "Неизвестная ошибка" };
+      return { login, error: error.message || "Неизвестная ошибка" };
     }
   });
 

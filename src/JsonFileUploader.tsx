@@ -1,4 +1,7 @@
 import React, { useState, useRef, useCallback } from 'react'
+import './JsonFileUploader.css'
+
+type ReportType = 'report17' | 'form_1od_2025'
 
 interface FileItem {
   file: File
@@ -11,6 +14,8 @@ interface FileItem {
 const JsonFileUploader: React.FC = () => {
   const [files, setFiles] = useState<FileItem[]>([])
   const inputRef = useRef<HTMLInputElement>(null)
+  const [reportType, setReportType] = useState<ReportType>('report17')
+  const [completeDocument, setCompleteDocument] = useState(false)
 
   /**
    * Обновляет состояние файла.
@@ -33,6 +38,9 @@ const JsonFileUploader: React.FC = () => {
 
   const uploadFile = useCallback(
     (item: FileItem) => {
+      // #region agent log
+      fetch('http://127.0.0.1:7246/ingest/9c157ceb-31b2-4b6a-87ae-fbb1790ee3c3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'JsonFileUploader.tsx:uploadFile:start',message:'Start uploadFile',data:{fileName:item.file.name,fileSize:item.file.size,reportType,completeDocument},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'} )}).catch(()=>{});
+      // #endregion
       updateFile(item.file, { status: 'uploading', progress: 0 })
 
       const interval = setInterval(() => {
@@ -46,25 +54,51 @@ const JsonFileUploader: React.FC = () => {
         clearInterval(interval)
         try {
           const json = JSON.parse(reader.result as string)
+          // #region agent log
+          fetch('http://127.0.0.1:7246/ingest/9c157ceb-31b2-4b6a-87ae-fbb1790ee3c3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'JsonFileUploader.tsx:reader:onload:parsed',message:'JSON.parse ok',data:{fileName:item.file.name,topLevelKeys:Object.keys(json||{}).slice(0,25)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'} )}).catch(()=>{});
+          // #endregion
           const resp = await fetch('http://localhost:3000/api/fill', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(json)
+            body: JSON.stringify({
+              ...json,
+              reportType,
+              completeDocument
+            })
           })
-          const data: { success: boolean } = await resp.json()
+          // #region agent log
+          fetch('http://127.0.0.1:7246/ingest/9c157ceb-31b2-4b6a-87ae-fbb1790ee3c3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'JsonFileUploader.tsx:fetch:resp',message:'Received /api/fill response',data:{fileName:item.file.name,status:resp.status,ok:resp.ok,contentType:resp.headers.get('content-type')},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'} )}).catch(()=>{});
+          // #endregion
+
+          const respText = await resp.clone().text()
+          // #region agent log
+          fetch('http://127.0.0.1:7246/ingest/9c157ceb-31b2-4b6a-87ae-fbb1790ee3c3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'JsonFileUploader.tsx:fetch:body',message:'Response body preview',data:{fileName:item.file.name,bodyLen:respText.length,bodyPreview:respText.slice(0,220)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'} )}).catch(()=>{});
+          // #endregion
+
+          const data: { success?: boolean; error?: string } = (() => {
+            try {
+              return JSON.parse(respText)
+            } catch {
+              return {}
+            }
+          })()
           updateFile(item.file, {
             status: resp.ok && data.success ? 'success' : 'error',
             progress: 100,
-            result: data
+            result: { success: !!data.success },
+            error: !resp.ok ? (data.error || `HTTP ${resp.status}`) : undefined
           })
         } catch (err: unknown) {
           const message = err instanceof Error ? err.message : 'Unknown error'
+          // #region agent log
+          fetch('http://127.0.0.1:7246/ingest/9c157ceb-31b2-4b6a-87ae-fbb1790ee3c3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'JsonFileUploader.tsx:reader:onload:catch',message:'Upload pipeline threw',data:{fileName:item.file.name,errorMessage:message,errorType:err instanceof Error ? err.name : typeof err},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'} )}).catch(()=>{});
+          // #endregion
           updateFile(item.file, { status: 'error', progress: 100, error: message })
         }
       }
       reader.readAsText(item.file)
     },
-    [updateFile]
+    [updateFile, reportType, completeDocument]
   )
 
   const handleFiles = (selected: FileList | null) => {
@@ -80,44 +114,85 @@ const JsonFileUploader: React.FC = () => {
   }
 
   return (
-    <div className="p-4 grid gap-4">
-      <h1 className="text-xl font-semibold">Загрузите JSON файлы</h1>
-      <input
-        ref={inputRef}
-        type="file"
-        accept="application/json"
-        multiple
-        onChange={e => handleFiles(e.target.files)}
-        className="p-2 border rounded"
-      />
+    <div className="json-uploader-container">
+      <div className="json-uploader-card">
+        <h1 className="json-uploader-title">Заполнение отчетов Ficto</h1>
+        <p className="json-uploader-subtitle">Загрузите JSON файлы с данными для автоматического заполнения</p>
 
-      <div className="grid gap-3">
-        {files.map((item, idx) => (
-          <div key={idx} className="p-4 bg-white rounded-2xl shadow">
-            <div className="flex justify-between items-center mb-2">
-              <span className="font-medium">{item.file.name}</span>
-              <span className="text-sm">
-                {item.status === 'uploading' && 'Загрузка…'}
-                {item.status === 'success' && 'Успешно'}
-                {item.status === 'error' && 'Ошибка'}
-              </span>
-            </div>
-            <div className="h-2 w-full bg-gray-200 rounded mb-2 overflow-hidden">
-              <div
-                className="h-full bg-blue-500 rounded transition-all"
-                style={{ width: `${item.progress}%` }}
-              />
-            </div>
-            {item.status === 'success' && item.result && (
-              <div className="text-green-600 text-sm">
-                Файл «{item.file.name}» успешно обработан.
-              </div>
-            )}
-            {item.status === 'error' && (
-              <div className="text-red-500 text-sm">{item.error}</div>
-            )}
+        <div className="json-uploader-controls">
+          <div className="json-uploader-field">
+            <label className="json-uploader-label">Тип отчета</label>
+            <select
+              value={reportType}
+              onChange={e => setReportType(e.target.value as ReportType)}
+              className="json-uploader-select"
+            >
+              <option value="report17">Отчет 17 (текущая форма)</option>
+              <option value="form_1od_2025">ФСН № 1-ОД 2025</option>
+            </select>
           </div>
-        ))}
+
+          <div className="json-uploader-field">
+            <label className="json-uploader-checkbox-label">
+              <input
+                type="checkbox"
+                checked={completeDocument}
+                onChange={e => setCompleteDocument(e.target.checked)}
+                className="json-uploader-checkbox"
+              />
+              <span>Завершать отчет после заполнения (блокировка)</span>
+            </label>
+          </div>
+
+          <div className="json-uploader-field">
+            <label className="json-uploader-file-label">
+              <input
+                ref={inputRef}
+                type="file"
+                accept="application/json"
+                multiple
+                onChange={e => handleFiles(e.target.files)}
+                className="json-uploader-file-input"
+              />
+              <span className="json-uploader-file-button">📁 Выбрать JSON файлы</span>
+            </label>
+          </div>
+        </div>
+
+        {files.length > 0 && (
+          <div className="json-uploader-files">
+            <h2 className="json-uploader-files-title">Загруженные файлы</h2>
+            {files.map((item, idx) => (
+              <div key={idx} className={`json-uploader-file-item json-uploader-file-item--${item.status}`}>
+                <div className="json-uploader-file-header">
+                  <span className="json-uploader-file-name">{item.file.name}</span>
+                  <span className={`json-uploader-file-status json-uploader-file-status--${item.status}`}>
+                    {item.status === 'uploading' && '⏳ Загрузка…'}
+                    {item.status === 'success' && '✅ Успешно'}
+                    {item.status === 'error' && '❌ Ошибка'}
+                    {item.status === 'pending' && '⏸ Ожидание'}
+                  </span>
+                </div>
+                <div className="json-uploader-progress-bar">
+                  <div
+                    className="json-uploader-progress-fill"
+                    style={{ width: `${item.progress}%` }}
+                  />
+                </div>
+                {item.status === 'success' && item.result && (
+                  <div className="json-uploader-success-message">
+                    ✓ Файл «{item.file.name}» успешно обработан и отправлен в Ficto
+                  </div>
+                )}
+                {item.status === 'error' && (
+                  <div className="json-uploader-error-message">
+                    ✗ {item.error || 'Произошла ошибка при обработке файла'}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )

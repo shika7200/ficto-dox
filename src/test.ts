@@ -1392,12 +1392,13 @@ async function main(inputJson: InputJson) {
 
   // Жёстко фиксированный panel_id для статуса
   const fixedPanelId = 3289
-  const docStatus = await api.getDocumentStatus( statusToken)
+  const documentId = 299
+  const docStatus = await api.getDocumentStatus(documentId, fixedPanelId, statusToken)
   if (docStatus.document.disabled_complite) {
     console.log(
       `Документ panel_id=${fixedPanelId} заблокирован, выполняем разблокировку (build_id=${docStatus.document.build_id})`
     )
-    await api.cancelDocumentLock(docStatus.document.build_id, fixedPanelId, statusToken)
+    await api.cancelDocumentLock(documentId, docStatus.document.build_id, fixedPanelId, statusToken)
     console.log('Разблокировка выполнена.')
   } else {
     console.log(`Документ panel_id=${fixedPanelId} уже разблокирован.`)
@@ -1418,8 +1419,10 @@ async function main(inputJson: InputJson) {
     console.log(`\n▶ Сохраняем раздел ${sectionKey} с init_token[${idx}]: ${token.slice(0, 10)}…`)
 
     const requestData = createSectionRequest(
-      sectionKey,
-      inputJson
+      sectionKey as string,
+      inputJson,
+      dataMapping,
+      "SECTION_11"
     ) as SaveDataRequestGeneric
 
     try {

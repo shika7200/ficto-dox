@@ -34,7 +34,12 @@ export class ApiService {
         errorMsg += error.message;
       }
     } else {
-      errorMsg += "Неизвестная ошибка";
+      // Для не-Axios ошибок используем сообщение ошибки напрямую, если оно есть
+      if (error?.message) {
+        errorMsg += error.message;
+      } else {
+        errorMsg += "Неизвестная ошибка";
+      }
     }
     throw new Error(errorMsg);
   }
@@ -42,16 +47,18 @@ export class ApiService {
   /**
    * Выполняет авторизацию пользователя.
    *
-   * @param email - Электронная почта пользователя.
+   * @param emailOrLogin - Email или логин пользователя.
    * @param password - Пароль пользователя.
    * @returns Объект с access_token и refresh_token.
    */
   async login(
-    email: string,
+    emailOrLogin: string,
     password: string
   ): Promise<{ access_token: string; refresh_token: string }> {
-    const loginData = {
-      email,
+    // Проверяем, является ли значение email-адресом
+    const isEmail = /^[a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z]{2,}$/.test(emailOrLogin);
+    
+    const baseLoginData = {
       password,
       remember_me: false,
       browser: {
@@ -63,7 +70,34 @@ export class ApiService {
       },
     };
 
+    // Если это email - используем поле email
+    if (isEmail) {
+      const loginData = {
+        ...baseLoginData,
+        email: emailOrLogin,
+      };
+
+      try {
+        const response = await axios.post(
+          "https://api.ficto.ru/client/auth/login",
+          loginData
+        );
+        return {
+          access_token: response.data.access_token,
+          refresh_token: response.data.refresh_token,
+        };
+      } catch (error) {
+        this.handleRequestError(error, "Ошибка авторизации");
+      }
+    }
+
+    // Для логина пробуем разные варианты полей
+    // Вариант 1: username
     try {
+      const loginData = {
+        ...baseLoginData,
+        username: emailOrLogin,
+      };
       const response = await axios.post(
         "https://api.ficto.ru/client/auth/login",
         loginData
@@ -73,8 +107,52 @@ export class ApiService {
         refresh_token: response.data.refresh_token,
       };
     } catch (error) {
-      this.handleRequestError(error, "Ошибка авторизации");
+      // Продолжаем пробовать другие варианты
     }
+
+    // Вариант 2: login
+    try {
+      const loginData = {
+        ...baseLoginData,
+        login: emailOrLogin,
+      };
+      const response = await axios.post(
+        "https://api.ficto.ru/client/auth/login",
+        loginData
+      );
+      return {
+        access_token: response.data.access_token,
+        refresh_token: response.data.refresh_token,
+      };
+    } catch (error) {
+      // Продолжаем пробовать другие варианты
+    }
+
+    // Вариант 3: все равно пробуем email (на случай, если API принимает логин в поле email)
+    let lastError: any = null;
+    try {
+      const loginData = {
+        ...baseLoginData,
+        email: emailOrLogin,
+      };
+      const response = await axios.post(
+        "https://api.ficto.ru/client/auth/login",
+        loginData
+      );
+      return {
+        access_token: response.data.access_token,
+        refresh_token: response.data.refresh_token,
+      };
+    } catch (error) {
+      lastError = error;
+    }
+
+    // Если ничего не сработало, выбрасываем ошибку с информацией о последней попытке
+    if (lastError && axios.isAxiosError(lastError) && lastError.response) {
+      const errorMsg = lastError.response.data?.message || JSON.stringify(lastError.response.data);
+      throw new Error(`Не удалось авторизоваться с логином "${emailOrLogin}". API вернул: ${errorMsg}`);
+    }
+    throw new Error(`Не удалось авторизоваться с логином "${emailOrLogin}". API Ficto может требовать email-адрес для авторизации.`);
   }
 
   /**
@@ -101,7 +179,7 @@ export class ApiService {
         uuid = response.data.items[0].uuid;
       }
       if (!uuid) {
-        throw new Error("UUID не найден");
+        throw new Error("Нет доступных грантов (UUID не найден)");
       }
       return uuid;
     } catch (error) {
@@ -200,8 +278,11 @@ export class ApiService {
   ): Promise<SaveDataResponse> {
     const url = "https://api.ficto.ru/client/layout/table/save-data";
 
-    // Тема заголовков — копия из вашего Bun-скрипта
-    const headers: Record<string, string> = {
+    // #region agent log
+    fetch('http://127.0.0.1:7246/ingest/9c157ceb-31b2-4b6a-87ae-fbb1790ee3c3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ApiService.ts:saveData:meta',message:'saveData request meta',data:{hasParams:!!(data as any)?.params,params_panel_id:(data as any)?.params?.panel_id ?? null,panel_id:(data as any)?.panel_id ?? null,tableLen:Array.isArray((data as any)?.table)?(data as any).table.length:null,firstRowKeys:(Array.isArray((data as any)?.table)&& (data as any).table[0])?Object.keys((data as any).table[0]):null,firstRowHasPanelId:(Array.isArray((data as any)?.table)&& (data as any).table[0])?('panel_id' in (data as any).table[0]):false,firstRowHasTypeId:(Array.isArray((data as any)?.table)&& (data as any).table[0])?('type_id' in (data as any).table[0]):false},timestamp:Date.now(),sessionId:'debug-session',runId:'run4',hypothesisId:'V'} )}).catch(()=>{});
+    // #endregion
+
+    const makeHeaders = (body: unknown): Record<string, string> => ({
       Accept: "application/json, text/plain, */*",
       "Accept-Encoding": "gzip, deflate, br, zstd",
       "Accept-Language": "ru-RU,ru;q=0.9",
@@ -222,8 +303,9 @@ export class ApiService {
         '"Chromium";v="134", "Not:A-Brand";v="24", "Google Chrome";v="134"',
       "sec-ch-ua-mobile": "?0",
       "sec-ch-ua-platform": '"Windows"',
-      "Content-Length": String(Buffer.byteLength(JSON.stringify(data), "utf8")),
-    };
+      "Content-Length": String(Buffer.byteLength(JSON.stringify(body), "utf8")),
+    });
+    const headers = makeHeaders(data);
 
     // Логируем перед запросом
     console.log("--- saveData: Request Headers ---");
@@ -231,11 +313,12 @@ export class ApiService {
     console.log("--- saveData: Request Body ---");
     console.log(JSON.stringify(data, null, 2));
 
-    const config: AxiosRequestConfig = {
-      headers,
-      transformRequest: [(body) => JSON.stringify(body)],
+    const makeConfig = (body: unknown): AxiosRequestConfig => ({
+      headers: makeHeaders(body),
+      transformRequest: [(b) => JSON.stringify(b)],
       decompress: false,
-    };
+    });
+    const config: AxiosRequestConfig = makeConfig(data);
 
     try {
       const resp = await axios.post<SaveDataResponse>(url, data, config);
@@ -247,13 +330,52 @@ export class ApiService {
       return resp.data;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (err: any) {
+      // #region agent log
+      fetch('http://127.0.0.1:7246/ingest/9c157ceb-31b2-4b6a-87ae-fbb1790ee3c3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ApiService.ts:saveData:catch',message:'saveData error details',data:{status:err?.response?.status ?? null,data:err?.response?.data ?? null},timestamp:Date.now(),sessionId:'debug-session',runId:'run5',hypothesisId:'H2'} )}).catch(()=>{});
+      // #endregion
+
+      // Попытка-проверка: иногда API возвращает 500 "Необработанная ошибка" при неверном type_id.
+      // Пробуем альтернативный type_id=1 (без логирования секретов), чтобы получить факт.
+      if (
+        axios.isAxiosError(err) &&
+        err.response?.status === 500 &&
+        err.response?.data?.message === "Необработанная ошибка" &&
+        Array.isArray((data as any)?.table) &&
+        (data as any).table.length > 0
+      ) {
+        const hadTypeId2 = (data as any).table.some((r: any) => r?.type_id === 2);
+        if (hadTypeId2) {
+          const altData: any = {
+            ...data,
+            table: (data as any).table.map((r: any) => ({
+              ...r,
+              type_id: 1,
+            })),
+          };
+          // #region agent log
+          fetch('http://127.0.0.1:7246/ingest/9c157ceb-31b2-4b6a-87ae-fbb1790ee3c3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ApiService.ts:saveData:probe',message:'Probing saveData with type_id=1 after 500',data:{panel_id:(data as any)?.panel_id ?? null,tableLen:(data as any)?.table?.length ?? null},timestamp:Date.now(),sessionId:'debug-session',runId:'run6',hypothesisId:'H3'} )}).catch(()=>{});
+          // #endregion
+          try {
+            const probeResp = await axios.post<SaveDataResponse>(url, altData, makeConfig(altData));
+            // #region agent log
+            fetch('http://127.0.0.1:7246/ingest/9c157ceb-31b2-4b6a-87ae-fbb1790ee3c3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ApiService.ts:saveData:probe:ok',message:'Probe saveData succeeded with type_id=1',data:{status:probeResp.status,body:probeResp.data},timestamp:Date.now(),sessionId:'debug-session',runId:'run6',hypothesisId:'H3'} )}).catch(()=>{});
+            // #endregion
+            return probeResp.data;
+          } catch (probeErr: any) {
+            // #region agent log
+            fetch('http://127.0.0.1:7246/ingest/9c157ceb-31b2-4b6a-87ae-fbb1790ee3c3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ApiService.ts:saveData:probe:fail',message:'Probe saveData failed',data:{status:probeErr?.response?.status ?? null,data:probeErr?.response?.data ?? null},timestamp:Date.now(),sessionId:'debug-session',runId:'run6',hypothesisId:'H3'} )}).catch(()=>{});
+            // #endregion
+          }
+        }
+      }
+
       if (axios.isAxiosError(err)) {
         console.error("--- saveData: Error Status ---", err.response?.status);
         console.error("--- saveData: Error Body ---", err.response?.data);
       } else {
         console.error("--- saveData: Unexpected Error ---", err);
       }
-      throw err;
+      this.handleRequestError(err, "Ошибка сохранения данных");
     }
   }
 
@@ -263,10 +385,13 @@ export class ApiService {
    * @param token - init_token для авторизации.
    * @returns Promise с DocumentResponse (включая build_id и флаги).
    */
-  async getDocumentStatus(token: string): Promise<DocumentResponse> {
-    // Фиксированный endpoint
-    const url = "https://api.ficto.ru/client/layout/documents/299/status";
-    const data = { params: { panel_id: 3289 }, fixation_params: {} };
+  async getDocumentStatus(
+    documentId: number,
+    panelId: number,
+    token: string
+  ): Promise<DocumentResponse> {
+    const url = `https://api.ficto.ru/client/layout/documents/${documentId}/status`;
+    const data = { params: { panel_id: panelId }, fixation_params: {} };
     const headers = {
       Accept: "application/json, text/plain, */*",
       "Content-Type": "application/json",
@@ -305,11 +430,12 @@ export class ApiService {
    * @returns Promise<{status: boolean}>
    */
   async cancelDocumentLock(
+    documentId: number,
     buildId: number,
     panelId: number,
     token: string
   ): Promise<{ status: boolean }> {
-    const url = `https://api.ficto.ru/client/layout/documents/299/cancel`;
+    const url = `https://api.ficto.ru/client/layout/documents/${documentId}/cancel`;
     const data = {
       params: { build_id: buildId, panel_id: panelId },
       fixation_params: {},
@@ -357,11 +483,12 @@ export class ApiService {
    * @returns Promise<{ status: boolean }>
    */
   async revokeSignature(
+    documentId: number,
     buildId: number,
     panelId: number,
     token: string
   ): Promise<{ status: boolean }> {
-    const url = "https://api.ficto.ru/client/layout/documents/299/revoke";
+    const url = `https://api.ficto.ru/client/layout/documents/${documentId}/revoke`;
     const data = {
       params: { build_id: buildId, panel_id: panelId },
       fixation_params: {},
@@ -408,11 +535,12 @@ export class ApiService {
    * @returns Promise с `{ status: boolean }`.
    */
   async completeDocument(
+    documentId: number,
     buildId: number,
     panelId: number,
     token: string
   ): Promise<{ status: boolean }> {
-    const url = "https://api.ficto.ru/client/layout/documents/299/complite";
+    const url = `https://api.ficto.ru/client/layout/documents/${documentId}/complite`;
     const data = {
       params: { build_id: buildId, panel_id: panelId },
       fixation_params: {},
@@ -466,7 +594,7 @@ export class ApiService {
     token: string
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   ): Promise<any> {
-    const url = "https://api.ficto.ru/client/layout/documents/299/check-errors";
+    const url = `https://api.ficto.ru/client/layout/documents/${documentId}/check-errors`;
     const data = {
       params: {
         document_id: documentId,

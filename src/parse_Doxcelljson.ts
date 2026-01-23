@@ -1,87 +1,151 @@
 import { InputJson } from "./apiService_types";
-import { dataMapping } from "./mapping";
-
-const isNumeric = (value: string): boolean => /^-?\d+(\.\d+)?$/.test(value);
-const parseValue = (value: string): number | string => isNumeric(value) ? Number(value) : value;
-
-type TableRow = {
-  panel_id: number;
-  row_id: number;
-  type_id: number;
-  columns: Record<string, number | string | null>;
-};
-
-type SectionRequest = {
-  params: { panel_id: number };
-  table: TableRow[];
-  panel_id: number;
-};
-
-const panelIdMapping: Record<string, number> = {
-  SECTION_12: 3253,
-  SECTION_13: 3255,
-  SECTION_14: 3257,
-  SECTION_15: 3259,
-  SECTION_16: 3261,
-  SECTION_21: 3263,
-  SECTION_22: 3265,
-  SECTION_23: 3267,
-  SECTION_24: 3269,
-  SECTION_25: 3271,
-  SECTION_26: 3273,
-  SECTION_27: 3275,
-  SECTION_31: 3277,
-  SECTION_32: 3279,
-  SECTION_33: 3281,
-  SECTION_34: 3283,
-  SECTION_35: 3285,
-  SECTION_36: 3287,
-};
 
 /**
  * Создает запрос для заполнения секции на основе ключа секции и входных данных
  */
 export function createSectionRequest(
-  sectionKey: keyof typeof dataMapping,
-  inputJson: InputJson
+  sectionKey: string,
+  inputJson: InputJson,
+  mapping: Record<string, any>,
+  dynamicSectionKey?: string,
+  panelIdBySection?: Record<string, number>
 ): object {
-  // Особая обработка для секции 11, которая имеет динамическое количество строк
-  if (sectionKey === "SECTION_11") {
-    return createSection11Request(inputJson);
+  // #region agent log
+  fetch('http://127.0.0.1:7246/ingest/9c157ceb-31b2-4b6a-87ae-fbb1790ee3c3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'parse_Doxcelljson.ts:createSectionRequest:entry',message:'createSectionRequest entry',data:{sectionKey,hasFactors:!!inputJson?.factors,factorsCount:inputJson?.factors?Object.keys(inputJson.factors).length:0,hasPanelIdBySection:!!panelIdBySection},timestamp:Date.now(),sessionId:'debug-session',runId:'run3',hypothesisId:'S'} )}).catch(()=>{});
+  // #endregion
+
+  // Особая обработка для секции с динамическими строками (например, SECTION_11)
+  if (dynamicSectionKey && sectionKey === dynamicSectionKey) {
+    return createSection11Request(inputJson, mapping[sectionKey]);
   }
 
   // Для всех других секций используем стандартное маппирование
-  const mappingRows = dataMapping[sectionKey];
-  const requestTable = mappingRows.map((mappingRow) => {
-    const { row_id, columns } = mappingRow;
-    const resultColumns: Record<string, any> = {};
+  const mappingRows = mapping[sectionKey];
 
-    // Заполняем колонки значениями из inputJson
-    for (const [colKey, fieldName] of Object.entries(columns)) {
-      if (fieldName === null) {
-        resultColumns[colKey] = null;
-      } else {
-        resultColumns[colKey] = inputJson[fieldName as keyof InputJson] ?? null;
-      }
+  if (!mappingRows) {
+    throw new Error(`Не найдена секция в mapping: ${sectionKey}`);
+  }
+
+  const normalizeValue = (v: unknown) => {
+    if (typeof v === "string") {
+      const s = v.trim();
+      if (/^-?\d+(\.\d+)?$/.test(s)) return Number(s);
+      return v;
+    }
+    return v;
+  };
+
+  const resolveFieldValue = (fieldName: string) => {
+    // Основной источник — inputJson.factors (поля отчёта), fallback — top-level поля inputJson
+    const raw =
+      (inputJson.factors && fieldName in inputJson.factors
+        ? inputJson.factors[fieldName]
+        : (inputJson as any)[fieldName]) ?? null;
+    return normalizeValue(raw);
+  };
+
+  if (Array.isArray(mappingRows)) {
+    const panelId =
+      (panelIdBySection && panelIdBySection[sectionKey]) ||
+      (mappingRows as any)?.panel_id ||
+      undefined;
+    if (!panelId) {
+      throw new Error(`Не найден panel_id для секции ${sectionKey}`);
     }
 
-    return {
-      row_id,
-      columns: resultColumns,
-    };
-  });
+    const sampleFieldNames = mappingRows
+      .slice(0, 6)
+      .flatMap((r: any) => Object.values(r.columns || {}))
+      .filter((v: any) => v !== null)
+      .slice(0, 6)
+      .map((v: any) => String(v));
+    const samplePresence = sampleFieldNames.map((k) => ({
+      k,
+      inFactors: !!(inputJson.factors && k in inputJson.factors),
+    }));
+    // #region agent log
+    fetch('http://127.0.0.1:7246/ingest/9c157ceb-31b2-4b6a-87ae-fbb1790ee3c3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'parse_Doxcelljson.ts:createSectionRequest:array:sample',message:'Sample mapping keys presence',data:{sectionKey,panelId,samplePresence},timestamp:Date.now(),sessionId:'debug-session',runId:'run5',hypothesisId:'H1'} )}).catch(()=>{});
+    // #endregion
 
-  return {
-    table: requestTable,
-  };
+    const requestTable = mappingRows.map((mappingRow) => {
+      const { row_id, columns } = mappingRow;
+      const resultColumns: Record<string, any> = {};
+
+      // Заполняем колонки значениями из inputJson
+      for (const [colKey, fieldName] of Object.entries(columns)) {
+        if (fieldName === null) {
+          resultColumns[colKey] = null;
+        } else {
+          resultColumns[colKey] = resolveFieldValue(String(fieldName));
+        }
+      }
+
+      return {
+        panel_id: panelId,
+        row_id,
+        type_id: 2,
+        columns: resultColumns,
+      };
+    });
+
+    // #region agent log
+    fetch('http://127.0.0.1:7246/ingest/9c157ceb-31b2-4b6a-87ae-fbb1790ee3c3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'parse_Doxcelljson.ts:createSectionRequest:array',message:'Built array-section request',data:{sectionKey,panelId,tableLen:requestTable.length,nonNullCells:requestTable.reduce((acc,r)=>acc+Object.values(r.columns||{}).filter(v=>v!==null&&v!==undefined).length,0)},timestamp:Date.now(),sessionId:'debug-session',runId:'run3',hypothesisId:'T'} )}).catch(()=>{});
+    // #endregion
+
+    return {
+      params: { panel_id: panelId },
+      panel_id: panelId,
+      table: requestTable,
+    };
+  }
+
+  if (mappingRows.rows && Array.isArray(mappingRows.rows)) {
+    const panelId =
+      mappingRows.panel_id ||
+      (panelIdBySection && panelIdBySection[sectionKey]) ||
+      undefined;
+    if (!panelId) {
+      throw new Error(`Не найден panel_id для секции ${sectionKey}`);
+    }
+    const requestTable = mappingRows.rows.map((mappingRow: any) => {
+      const { row_id, columns, type_id, row_inc } = mappingRow;
+      const resultColumns: Record<string, any> = {};
+
+      for (const [colKey, fieldName] of Object.entries(columns)) {
+        if (fieldName === null) {
+          resultColumns[colKey] = null;
+        } else {
+          resultColumns[colKey] = resolveFieldValue(String(fieldName));
+        }
+      }
+
+      return {
+        row_id,
+        ...(typeof type_id === "number" ? { type_id } : {}),
+        ...(typeof row_inc === "number" ? { row_inc } : {}),
+        columns: resultColumns,
+      };
+    });
+
+    return {
+      params: { panel_id: panelId },
+      panel_id: panelId,
+      table: requestTable,
+    };
+  }
+
+  throw new Error(`Неизвестная структура секции: ${sectionKey}`);
 }
 
 /**
- * Создает запрос для секции 11 с учетом динамического количества строк
+ * Создает запрос для секции с динамическим количеством строк
  */
-function createSection11Request(inputJson: InputJson): object {
-  const section11Mapping = dataMapping.SECTION_11;
+function createSection11Request(inputJson: InputJson, section11Mapping: any): object {
   const table = [];
+
+  if (!section11Mapping?.header || !section11Mapping?.rows) {
+    throw new Error("Некорректная структура секции с динамическими строками");
+  }
 
   // Добавляем заголовок таблицы
   const headerColumns: Record<string, any> = {};
@@ -89,7 +153,11 @@ function createSection11Request(inputJson: InputJson): object {
     if (fieldName === null) {
       headerColumns[colKey] = null;
     } else {
-      headerColumns[colKey] = inputJson[fieldName as keyof InputJson] ?? null;
+      // Пробуем сначала в factors, потом в top-level полях
+      const value = (inputJson.factors && typeof fieldName === "string" && fieldName in inputJson.factors)
+        ? inputJson.factors[fieldName]
+        : (inputJson[fieldName as keyof InputJson] ?? null);
+      headerColumns[colKey] = value;
     }
   }
 
@@ -101,13 +169,35 @@ function createSection11Request(inputJson: InputJson): object {
   });
 
   // Определяем количество строк, которые нужно создать
-  const rowCountField = section11Mapping.header.columns["36889"];
-  let rowCount = Number(inputJson[rowCountField as keyof InputJson] || 0);
+  // Ищем поле для количества строк в header.columns (может быть разным column_id для разных секций)
+  const rowCountField = Object.values(section11Mapping.header.columns).find(
+    (fieldName) => fieldName && typeof fieldName === "string" && 
+    (fieldName.includes("rpreport17s2r2c3_1") || fieldName.includes("rpreport6s16r15c3_0"))
+  ) as string | undefined;
+  
+  if (!rowCountField) {
+    throw new Error("Не найдено поле для количества строк в header секции");
+  }
+  
+  const rowCountValue = (inputJson.factors && rowCountField in inputJson.factors)
+    ? inputJson.factors[rowCountField]
+    : (inputJson[rowCountField as keyof InputJson] || 0);
+  // Преобразуем в число, даже если пришло как строка
+  let rowCount = Number(String(rowCountValue).trim());
+  if (isNaN(rowCount) || rowCount < 0) {
+    rowCount = 0;
+  }
   
   // Не более 10 строк согласно требованиям
   rowCount = Math.min(rowCount, 10);
   
+  // #region agent log
+  fetch('http://127.0.0.1:7246/ingest/9c157ceb-31b2-4b6a-87ae-fbb1790ee3c3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'parse_Doxcelljson.ts:createSection11Request:rowCount',message:'Dynamic section row count',data:{rowCountField,rowCountValue,rowCount,availableRows:section11Mapping.rows?.length??0},timestamp:Date.now(),sessionId:'debug-session',runId:'run8',hypothesisId:'W'} )}).catch(()=>{});
+  // #endregion
+  
   // Добавляем динамические строки в соответствии с их количеством
+  // Если rowCount=1, подставится только rows[0] (первый row)
+  // Если rowCount=3, подставятся rows[0], rows[1], rows[2] (первые три rows)
   for (let i = 0; i < rowCount; i++) {
     const rowMapping = section11Mapping.rows[i];
     if (!rowMapping) continue;
@@ -116,8 +206,18 @@ function createSection11Request(inputJson: InputJson): object {
     for (const [colKey, fieldName] of Object.entries(rowMapping.columns)) {
       if (fieldName === null) {
         rowColumns[colKey] = null;
+      } else if (typeof fieldName === "number") {
+        // Если значение - число, используем его как есть (например, 51829: 300967)
+        rowColumns[colKey] = fieldName;
+      } else if (typeof fieldName === "string" && fieldName.startsWith("rpreport")) {
+        // Если значение - строка, начинающаяся с "rpreport", ищем в factors
+        const value = (inputJson.factors && fieldName in inputJson.factors)
+          ? inputJson.factors[fieldName]
+          : (inputJson[fieldName as keyof InputJson] ?? null);
+        rowColumns[colKey] = value;
       } else {
-        rowColumns[colKey] = inputJson[fieldName as keyof InputJson] ?? null;
+        // Для других случаев используем значение как есть
+        rowColumns[colKey] = fieldName;
       }
     }
     
@@ -132,13 +232,17 @@ function createSection11Request(inputJson: InputJson): object {
   }
   
   // Добавляем footer элементы таблицы
-  for (const footerRow of section11Mapping.footer) {
+  for (const footerRow of section11Mapping.footer || []) {
     const footerColumns: Record<string, any> = {};
     for (const [colKey, fieldName] of Object.entries(footerRow.columns)) {
       if (fieldName === null) {
         footerColumns[colKey] = null;
       } else {
-        footerColumns[colKey] = inputJson[fieldName as keyof InputJson] ?? null;
+        // Пробуем сначала в factors, потом в top-level полях
+        const value = (inputJson.factors && typeof fieldName === "string" && fieldName in inputJson.factors)
+          ? inputJson.factors[fieldName]
+          : (inputJson[fieldName as keyof InputJson] ?? null);
+        footerColumns[colKey] = value;
       }
     }
     

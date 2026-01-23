@@ -78,6 +78,9 @@ app.post('/api/export', async ({ body }) => {
 app.post('/api/fill', async ({ body }) => {
   try {
     const inputJson = (await body) as InputJson
+    // #region agent log
+    fetch('http://127.0.0.1:7246/ingest/9c157ceb-31b2-4b6a-87ae-fbb1790ee3c3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ApiController.ts:/api/fill:entry',message:'Received /api/fill',data:{keys:Object.keys(inputJson||{}),reportType:inputJson?.reportType,completeDocument:inputJson?.completeDocument,hasDoxcellLogin:!!inputJson?.doxcellLogin,hasFictoLogin:!!inputJson?.fictoLogin,hasDocumentId:!!inputJson?.documentId,factorsCount:inputJson?.factors?Object.keys(inputJson.factors).length:0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'} )}).catch(()=>{});
+    // #endregion
     await FictioFill(inputJson)
     return new Response(
       JSON.stringify({ success: true }),
@@ -85,6 +88,9 @@ app.post('/api/fill', async ({ body }) => {
     )
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error'
+    // #region agent log
+    fetch('http://127.0.0.1:7246/ingest/9c157ceb-31b2-4b6a-87ae-fbb1790ee3c3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ApiController.ts:/api/fill:catch',message:'Error in /api/fill',data:{errorMessage:message,errorType:error instanceof Error ? error.name : typeof error},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'} )}).catch(()=>{});
+    // #endregion
     return new Response(
       JSON.stringify({ error: message }),
       { status: 500, headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } }
