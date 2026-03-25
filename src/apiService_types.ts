@@ -99,3 +99,8 @@ export interface InputJson {
   completeDocument?: boolean;
   factors: Record<string, string>;
 }
+
+export type SaveDataRequestContext = {
+  fingerprint?: string;
+  sessionId?: string;
+};

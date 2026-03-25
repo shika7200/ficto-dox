@@ -69,6 +69,10 @@ export async function FictioFill(inputJson: InputJson): Promise<{ success: true 
   // #endregion
   const documentId = Number(inputJson.documentId) || reportConfig.documentId
   const statusPanelId = reportConfig.statusPanelId
+  const saveDataCtx = {
+    fingerprint: String(documentId),
+    sessionId: "debug-session",
+  }
 
   // #region agent log
   fetch('http://127.0.0.1:7246/ingest/9c157ceb-31b2-4b6a-87ae-fbb1790ee3c3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'fictioFill.ts:status:inputs',message:'Status inputs resolved',data:{documentId:documentId??null,statusPanelId:statusPanelId??null,shouldComplete},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'P'} )}).catch(()=>{});
@@ -128,7 +132,7 @@ export async function FictioFill(inputJson: InputJson): Promise<{ success: true 
     fetch('http://127.0.0.1:7246/ingest/9c157ceb-31b2-4b6a-87ae-fbb1790ee3c3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'fictioFill.ts:startToken:try',message:'Trying start token candidate for first section',data:{cand,sectionKey:String(firstSectionKey),panel_id:(firstRequest as any)?.panel_id ?? null,article_id:safeDecodeArticleId(initTokens[cand])},timestamp:Date.now(),sessionId:'debug-session',runId:'run7',hypothesisId:'H5'} )}).catch(()=>{});
     // #endregion
     try {
-      await api.saveData(initTokens[cand], firstRequest)
+      await api.saveData(initTokens[cand], firstRequest, saveDataCtx)
       startTokenIdx = cand
       firstSectionAlreadySaved = true
       // #region agent log
@@ -166,7 +170,7 @@ export async function FictioFill(inputJson: InputJson): Promise<{ success: true 
 
     // Отправляем данные
     try {
-      await api.saveData(token, requestData)
+      await api.saveData(token, requestData, saveDataCtx)
     } catch (err) {
       // Для части panel_id backend принимает только определённый init_token (article binding).
       if (isUnhandled500(err)) {
@@ -175,7 +179,7 @@ export async function FictioFill(inputJson: InputJson): Promise<{ success: true 
           if (probeIdx === tokenIdx) continue
           const probeToken = initTokens[probeIdx]
           try {
-            await api.saveData(probeToken, requestData)
+            await api.saveData(probeToken, requestData, saveDataCtx)
             recovered = true
             break
           } catch {

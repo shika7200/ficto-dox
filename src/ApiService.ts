@@ -2,9 +2,17 @@ import axios, { AxiosRequestConfig } from "axios";
 import { Buffer } from "buffer";
 import {
   DocumentResponse,
+  SaveDataRequestContext,
   SaveDataRequestGeneric,
   SaveDataResponse,
 } from "./apiService_types";
+import {
+  buildSaveDataHeaders,
+  prepareSaveDataPayload,
+  saveDataExponentialBackoffMs,
+  shouldRetrySaveData,
+  type SaveDataNormalizationPolicy,
+} from "./saveDataPolicy";
 
 /**
  * Сервис для работы с API Ficto.
@@ -294,13 +302,21 @@ export class ApiService {
   // после упрощения
   async saveData(
     token: string,
-    data: SaveDataRequestGeneric
+    data: SaveDataRequestGeneric,
+    ctx?: SaveDataRequestContext
   ): Promise<SaveDataResponse> {
     const url = "https://api.ficto.ru/client/layout/table/save-data";
 
     // #region agent log
     fetch('http://127.0.0.1:7246/ingest/9c157ceb-31b2-4b6a-87ae-fbb1790ee3c3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ApiService.ts:saveData:meta',message:'saveData request meta',data:{hasParams:!!(data as any)?.params,params_panel_id:(data as any)?.params?.panel_id ?? null,panel_id:(data as any)?.panel_id ?? null,tableLen:Array.isArray((data as any)?.table)?(data as any).table.length:null,firstRowKeys:(Array.isArray((data as any)?.table)&& (data as any).table[0])?Object.keys((data as any).table[0]):null,firstRowHasPanelId:(Array.isArray((data as any)?.table)&& (data as any).table[0])?('panel_id' in (data as any).table[0]):false,firstRowHasTypeId:(Array.isArray((data as any)?.table)&& (data as any).table[0])?('type_id' in (data as any).table[0]):false},timestamp:Date.now(),sessionId:'debug-session',runId:'run4',hypothesisId:'V'} )}).catch(()=>{});
     // #endregion
+
+    // Web-parity: normalize request body and apply request-scoped headers.
+    const policy: SaveDataNormalizationPolicy = {
+      nullAsEmptyString: false,
+      includeRowIdField: "null",
+    };
+    const preparedBody = prepareSaveDataPayload(data, policy);
 
     const makeHeaders = (body: unknown): Record<string, string> => ({
       Accept: "application/json, text/plain, */*",
@@ -325,43 +341,64 @@ export class ApiService {
       "sec-ch-ua-platform": '"Windows"',
       "Content-Length": String(Buffer.byteLength(JSON.stringify(body), "utf8")),
     });
-    const headers = makeHeaders(data);
+    const headers = buildSaveDataHeaders(makeHeaders(preparedBody), ctx);
 
     // Логируем перед запросом
     console.log("--- saveData: Request Headers ---");
     console.dir(headers, { depth: null });
     console.log("--- saveData: Request Body ---");
-    console.log(JSON.stringify(data, null, 2));
+    console.log(JSON.stringify(preparedBody, null, 2));
 
     const makeConfig = (body: unknown): AxiosRequestConfig => ({
-      headers: makeHeaders(body),
+      headers: buildSaveDataHeaders(makeHeaders(body), ctx),
       transformRequest: [(b) => JSON.stringify(b)],
       decompress: false,
     });
-    const config: AxiosRequestConfig = makeConfig(data);
+    const config: AxiosRequestConfig = makeConfig(preparedBody);
 
-    try {
-      const resp = await axios.post<SaveDataResponse>(url, data, config);
+    const maxAttempts = 3;
+    let lastErr: any = null;
 
-      // Логируем ответ
-      console.log("--- saveData: Response Status ---", resp.status);
-      console.log("--- saveData: Response Body ---", resp.data);
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        const resp = await axios.post<SaveDataResponse>(
+          url,
+          preparedBody,
+          config
+        );
 
-      return resp.data;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } catch (err: any) {
-      // #region agent log
-      fetch('http://127.0.0.1:7246/ingest/9c157ceb-31b2-4b6a-87ae-fbb1790ee3c3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ApiService.ts:saveData:catch',message:'saveData error details',data:{status:err?.response?.status ?? null,data:err?.response?.data ?? null},timestamp:Date.now(),sessionId:'debug-session',runId:'run5',hypothesisId:'H2'} )}).catch(()=>{});
-      // #endregion
+        // Логируем ответ
+        console.log("--- saveData: Response Status ---", resp.status);
+        console.log("--- saveData: Response Body ---", resp.data);
 
-      if (axios.isAxiosError(err)) {
-        console.error("--- saveData: Error Status ---", err.response?.status);
-        console.error("--- saveData: Error Body ---", err.response?.data);
-      } else {
-        console.error("--- saveData: Unexpected Error ---", err);
+        return resp.data;
+      } catch (err: any) {
+        lastErr = err;
+
+        const status = err?.response?.status as number | undefined;
+        const message = err?.response?.data?.message ?? err?.message;
+
+        if (shouldRetrySaveData(status, message, attempt, maxAttempts)) {
+          const backoffMs = saveDataExponentialBackoffMs(attempt, 50);
+          await new Promise((r) => setTimeout(r, backoffMs));
+          continue;
+        }
+
+        break;
       }
-      this.handleRequestError(err, "Ошибка сохранения данных");
     }
+
+    // #region agent log
+    fetch('http://127.0.0.1:7246/ingest/9c157ceb-31b2-4b6a-87ae-fbb1790ee3c3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ApiService.ts:saveData:catch',message:'saveData error details',data:{status:lastErr?.response?.status ?? null,data:lastErr?.response?.data ?? null},timestamp:Date.now(),sessionId:'debug-session',runId:'run5',hypothesisId:'H2'} )}).catch(()=>{});
+    // #endregion
+
+    if (axios.isAxiosError(lastErr)) {
+      console.error("--- saveData: Error Status ---", lastErr.response?.status);
+      console.error("--- saveData: Error Body ---", lastErr.response?.data);
+    } else {
+      console.error("--- saveData: Unexpected Error ---", lastErr);
+    }
+    this.handleRequestError(lastErr, "Ошибка сохранения данных");
   }
 
   /**
