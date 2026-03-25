@@ -1,7 +1,7 @@
 import { InputJson, SaveDataRequestGeneric,  } from "./apiService_types";
 
 import { createSectionRequest } from "./parse_Doxcelljson";
-import { dataMapping } from "./mapping";
+import { dataMapping } from "./mapping_oo-2_2025";
 import { ApiService } from "./ApiService";
 
 

@@ -1,4 +1,4 @@
-import { dataMapping as report17Mapping } from "./mapping";
+import { dataMapping as report17Mapping } from "./mapping_oo-2_2025";
 import { dataMapping as form1Od2025Mapping } from "./mapping(1-ОД_2025)полный.ts";
 import { ReportType } from "./apiService_types";
 
@@ -34,6 +34,28 @@ const FORM_1OD_2025_PANEL_IDS: Record<string, number> = {
   SECTION_6: 4466,
 };
 
+const REPORT_17_PANEL_IDS: Record<string, number> = {
+  SECTION_11: 4484,
+  SECTION_12: 4485,
+  SECTION_13: 4488,
+  SECTION_14: 4469,
+  SECTION_15: 4470,
+  SECTION_16: 4471,
+  SECTION_21: 4472,
+  SECTION_22: 4473,
+  SECTION_23: 4474,
+  SECTION_24: 4475,
+  SECTION_25: 4476,
+  SECTION_26: 4477,
+  SECTION_27: 4478,
+  SECTION_31: 4479,
+  SECTION_32: 4480,
+  SECTION_33: 4481,
+  SECTION_34: 4486,
+  SECTION_35: 4487,
+  SECTION_36: 4468,
+};
+
 const reportConfigs: Record<ReportType, ReportConfig> = {
   report17: {
     mapping: report17Mapping,
@@ -41,6 +63,7 @@ const reportConfigs: Record<ReportType, ReportConfig> = {
     documentId: 299,
     statusPanelId: 3289,
     defaultCompleteDocument: true,
+    panelIdBySection: REPORT_17_PANEL_IDS,
   },
   form_1od_2025: {
     mapping: form1Od2025Mapping,

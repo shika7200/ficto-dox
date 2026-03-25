@@ -28,6 +28,12 @@ export async function FictioFill(inputJson: InputJson): Promise<{ success: true 
     }
   }
 
+  const isUnhandled500 = (err: unknown): boolean => {
+    const e = err as any
+    const msg = e?.response?.data?.message ?? e?.message ?? ""
+    return String(msg).includes("Необработанная ошибка")
+  }
+
   // #region agent log
   fetch('http://127.0.0.1:7246/ingest/9c157ceb-31b2-4b6a-87ae-fbb1790ee3c3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'fictioFill.ts:entry',message:'FictioFill entry',data:{reportType:inputJson?.reportType,shouldComplete,hasDocumentId:!!inputJson?.documentId,factorsCount:inputJson?.factors?Object.keys(inputJson.factors).length:0},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'P'} )}).catch(()=>{});
   // #endregion
@@ -39,10 +45,14 @@ export async function FictioFill(inputJson: InputJson): Promise<{ success: true 
   // Авторизация и получение init-токенов
   const { access_token } = await api.login(email, password)
   const uuid = await api.getUuid(access_token)
-  const initTokens = await api.getInitTokens(uuid, access_token)
+  const minRequiredTokens = shouldComplete ? 2 : 1
+  const initTokens = await api.getInitTokens(uuid, access_token, {
+    requiredCount: minRequiredTokens,
+    maxWorkspaceIndex: 21,
+  })
 
-  if (initTokens.length < 2) {
-    throw new Error(`Ожидалось минимум 2 initTokens, получили ${initTokens.length}`)
+  if (initTokens.length < minRequiredTokens) {
+    throw new Error(`Ожидалось минимум ${minRequiredTokens} initTokens, получили ${initTokens.length}`)
   }
 
   // Последний токен — для операций со статусом документа
@@ -112,9 +122,7 @@ export async function FictioFill(inputJson: InputJson): Promise<{ success: true 
 
   let startTokenIdx: number | null = null
   let firstSectionAlreadySaved = false
-  const candidates = [1, 0, 2, 3, 4].filter(
-    (i) => i >= 0 && i < tokensAvailableLen
-  )
+  const candidates = [0, 1, 2, 3, 4].filter((i) => i >= 0 && i < tokensAvailableLen)
   for (const cand of candidates) {
     // #region agent log
     fetch('http://127.0.0.1:7246/ingest/9c157ceb-31b2-4b6a-87ae-fbb1790ee3c3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'fictioFill.ts:startToken:try',message:'Trying start token candidate for first section',data:{cand,sectionKey:String(firstSectionKey),panel_id:(firstRequest as any)?.panel_id ?? null,article_id:safeDecodeArticleId(initTokens[cand])},timestamp:Date.now(),sessionId:'debug-session',runId:'run7',hypothesisId:'H5'} )}).catch(()=>{});
@@ -137,19 +145,13 @@ export async function FictioFill(inputJson: InputJson): Promise<{ success: true 
     throw new Error("Не удалось подобрать init_token для первой секции (saveData всегда падает)")
   }
 
-  if (startTokenIdx + sectionKeys.length > tokensAvailableLen) {
-    throw new Error(
-      `Недостаточно initTokens для всех секций: startTokenIdx=${startTokenIdx}, секций=${sectionKeys.length}, доступно токенов=${tokensAvailableLen}`
-    )
-  }
+  // Циклическое переиспользование токенов, когда workspace меньше секций (API принимает один token для разных panel_id)
+  const tokenIdxForSection = (sectionIdx: number) =>
+    (startTokenIdx! + sectionIdx) % tokensAvailableLen
 
   // Заполняем каждую секцию по порядку
-  for (
-    let sectionIdx = firstSectionAlreadySaved ? 1 : 0;
-    sectionIdx < sectionKeys.length && startTokenIdx + sectionIdx < tokensAvailableLen;
-    sectionIdx++
-  ) {
-    const tokenIdx = startTokenIdx + sectionIdx
+  for (let sectionIdx = firstSectionAlreadySaved ? 1 : 0; sectionIdx < sectionKeys.length; sectionIdx++) {
+    const tokenIdx = tokenIdxForSection(sectionIdx)
     const token = initTokens[tokenIdx]
     const sectionKey = sectionKeys[sectionIdx]
     
@@ -162,12 +164,31 @@ export async function FictioFill(inputJson: InputJson): Promise<{ success: true 
       panelIdBySection
     ) as SaveDataRequestGeneric
 
-    // #region agent log
-    fetch('http://127.0.0.1:7246/ingest/9c157ceb-31b2-4b6a-87ae-fbb1790ee3c3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'fictioFill.ts:saveData:before',message:'About to call saveData',data:{tokenIndex:tokenIdx,sectionIndex:sectionIdx,sectionKey:String(sectionKey),panel_id:(requestData as any)?.panel_id ?? null,params_panel_id:(requestData as any)?.params?.panel_id ?? null,tableLen:Array.isArray((requestData as any)?.table)?(requestData as any).table.length:null},timestamp:Date.now(),sessionId:'debug-session',runId:'run4',hypothesisId:'U'} )}).catch(()=>{});
-    // #endregion
-    
     // Отправляем данные
-    await api.saveData(token, requestData)
+    try {
+      await api.saveData(token, requestData)
+    } catch (err) {
+      // Для части panel_id backend принимает только определённый init_token (article binding).
+      if (isUnhandled500(err)) {
+        let recovered = false
+        for (let probeIdx = 0; probeIdx < initTokens.length; probeIdx++) {
+          if (probeIdx === tokenIdx) continue
+          const probeToken = initTokens[probeIdx]
+          try {
+            await api.saveData(probeToken, requestData)
+            recovered = true
+            break
+          } catch {
+            // try next token
+          }
+        }
+        if (recovered) {
+          continue
+        }
+      }
+
+      throw err
+    }
   }
 
   if (shouldComplete && documentId && statusPanelId) {
@@ -186,8 +207,8 @@ export async function FictioFill(inputJson: InputJson): Promise<{ success: true 
 
 
   if (shouldComplete && documentId && statusPanelId) {
-    const refreshedInitTokens = await api.getInitTokens(uuid, access_token)
-    const refreshedstatusToken = initTokens[refreshedInitTokens.length - 1]
+    const refreshedInitTokens = await api.getInitTokens(uuid, access_token, { requiredCount: 1 })
+    const refreshedstatusToken = refreshedInitTokens[refreshedInitTokens.length - 1]
     const refreshed = await api.getDocumentStatus(documentId, statusPanelId, refreshedstatusToken);
     // Наконец – комплитим с правильным build_id
     await api.completeDocument(

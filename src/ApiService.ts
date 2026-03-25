@@ -195,20 +195,40 @@ export class ApiService {
    * @returns Массив init_token.
    * @throws Error, если init_token не найден для одного из запросов.
    */
-  async getInitTokens(uuid: string, access_token: string): Promise<string[]> {
+  async getInitTokens(
+    uuid: string,
+    access_token: string,
+    options?: { requiredCount?: number; maxWorkspaceIndex?: number }
+  ): Promise<string[]> {
     const initTokens: string[] = [];
+    const requiredCount = options?.requiredCount ?? 1;
+    const maxWorkspaceIndex = options?.maxWorkspaceIndex ?? 21;
 
     try {
-      for (let i = 1; i <= 21; i++) {
-        const response = await axios.get(`https://api.ficto.ru/client/workspace/${uuid}/${i}`, {
-          headers: { Authorization: `Bearer ${access_token}` }
-        });
-        const tokenValue = response.data?.item?.init_token;
-        if (!tokenValue) {
-          // Генерируем и выбрасываем ошибку с указанием номера запроса
-          throw new Error(`Init token не найден для запроса ${i}`);
+      for (let i = 1; i <= maxWorkspaceIndex; i++) {
+        try {
+          const response = await axios.get(`https://api.ficto.ru/client/workspace/${uuid}/${i}`, {
+            headers: { Authorization: `Bearer ${access_token}` }
+          });
+          const tokenValue = response.data?.item?.init_token;
+          if (!tokenValue) {
+            // Если сломанный/пустой workspace встретился после валидных — считаем это концом списка.
+            if (initTokens.length > 0) break;
+            throw new Error(`Init token не найден для запроса ${i}`);
+          }
+          initTokens.push(tokenValue);
+        } catch (err) {
+          // У части аккаунтов backend возвращает 500/404 на несуществующих хвостовых workspace.
+          // После первого валидного токена трактуем это как окончание списка, а не фатальную ошибку.
+          if (initTokens.length > 0) break;
+          throw err;
         }
-        initTokens.push(tokenValue);
+      }
+
+      if (initTokens.length < requiredCount) {
+        throw new Error(
+          `Недостаточно init_token: нужно минимум ${requiredCount}, получено ${initTokens.length}`
+        );
       }
       return initTokens;
     } catch (error) {
@@ -333,41 +353,6 @@ export class ApiService {
       // #region agent log
       fetch('http://127.0.0.1:7246/ingest/9c157ceb-31b2-4b6a-87ae-fbb1790ee3c3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ApiService.ts:saveData:catch',message:'saveData error details',data:{status:err?.response?.status ?? null,data:err?.response?.data ?? null},timestamp:Date.now(),sessionId:'debug-session',runId:'run5',hypothesisId:'H2'} )}).catch(()=>{});
       // #endregion
-
-      // Попытка-проверка: иногда API возвращает 500 "Необработанная ошибка" при неверном type_id.
-      // Пробуем альтернативный type_id=1 (без логирования секретов), чтобы получить факт.
-      if (
-        axios.isAxiosError(err) &&
-        err.response?.status === 500 &&
-        err.response?.data?.message === "Необработанная ошибка" &&
-        Array.isArray((data as any)?.table) &&
-        (data as any).table.length > 0
-      ) {
-        const hadTypeId2 = (data as any).table.some((r: any) => r?.type_id === 2);
-        if (hadTypeId2) {
-          const altData: any = {
-            ...data,
-            table: (data as any).table.map((r: any) => ({
-              ...r,
-              type_id: 1,
-            })),
-          };
-          // #region agent log
-          fetch('http://127.0.0.1:7246/ingest/9c157ceb-31b2-4b6a-87ae-fbb1790ee3c3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ApiService.ts:saveData:probe',message:'Probing saveData with type_id=1 after 500',data:{panel_id:(data as any)?.panel_id ?? null,tableLen:(data as any)?.table?.length ?? null},timestamp:Date.now(),sessionId:'debug-session',runId:'run6',hypothesisId:'H3'} )}).catch(()=>{});
-          // #endregion
-          try {
-            const probeResp = await axios.post<SaveDataResponse>(url, altData, makeConfig(altData));
-            // #region agent log
-            fetch('http://127.0.0.1:7246/ingest/9c157ceb-31b2-4b6a-87ae-fbb1790ee3c3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ApiService.ts:saveData:probe:ok',message:'Probe saveData succeeded with type_id=1',data:{status:probeResp.status,body:probeResp.data},timestamp:Date.now(),sessionId:'debug-session',runId:'run6',hypothesisId:'H3'} )}).catch(()=>{});
-            // #endregion
-            return probeResp.data;
-          } catch (probeErr: any) {
-            // #region agent log
-            fetch('http://127.0.0.1:7246/ingest/9c157ceb-31b2-4b6a-87ae-fbb1790ee3c3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ApiService.ts:saveData:probe:fail',message:'Probe saveData failed',data:{status:probeErr?.response?.status ?? null,data:probeErr?.response?.data ?? null},timestamp:Date.now(),sessionId:'debug-session',runId:'run6',hypothesisId:'H3'} )}).catch(()=>{});
-            // #endregion
-          }
-        }
-      }
 
       if (axios.isAxiosError(err)) {
         console.error("--- saveData: Error Status ---", err.response?.status);

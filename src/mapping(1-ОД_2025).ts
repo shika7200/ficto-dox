@@ -54,7 +54,7 @@ export const dataMapping = {
     SECTION_2_5: /*panel_id: 4453*/[
       { row_id: 85419, columns: { 51749: "rpreport6s7r1c1_0", 51750: "rpreport6s7r1c2_0", 51751: "rpreport6s7r1c3_0", 51752: "rpreport6s7r1c4_0", 51753: "rpreport6s7r1c5_0", 51754: "rpreport6s7r1c6_0", 51755: "rpreport6s7r1c7_0", 51756: "rpreport6s7r1c8_0" } },
       { row_id: 85420, columns: { 51749: "rpreport6s7r2c1_0", 51750: "rpreport6s7r2c2_0", 51751: "rpreport6s7r2c3_0", 51752: "rpreport6s7r2c4_0", 51753: "rpreport6s7r2c5_0", 51754: "rpreport6s7r2c6_0", 51755: "rpreport6s7r2c7_0", 51756: "rpreport6s7r2c8_0" } },
-      { row_id: 85421, columns: { 51749: "rpreport6s7r1c1_0", 51750: "rpreport6s7r1c2_0", 51751: "rpreport6s7r1c3_0", 51752: "rpreport6s7r1c4_0", 51753: "rpreport6s7r1c5_0", 51754: "rpreport6s7r1c6_0", 51755: "rpreport6s7r1c7_0", 51756: "rpreport6s7r1c8_0" } },
+      { row_id: 85421, columns: { 51749: "rpreport6s7r3c1_0", 51750: "rpreport6s7r3c2_0", 51751: "rpreport6s7r3c3_0", 51752: "rpreport6s7r3c4_0", 51753: "rpreport6s7r3c5_0", 51754: "rpreport6s7r3c6_0", 51755: "rpreport6s7r3c7_0", 51756: "rpreport6s7r3c8_0" } },
     ],
     SECTION_2_6: /*panel_id: 4454*/[
       { row_id: 85425, columns: { 51759: "rpreport6s8r1c1_0", 51760: "rpreport6s8r1c2_0" } },

@@ -1,4 +1,4 @@
-import { dataMapping } from "./mapping";
+import { dataMapping } from "./mapping_oo-2_2025";
 
 export type ReportType = "report17" | "form_1od_2025";
 
