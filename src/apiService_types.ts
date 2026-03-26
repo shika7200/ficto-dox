@@ -38,6 +38,14 @@ export interface SaveDataRequestGeneric {
   table: SaveDataRowRawGeneric[];
 }
 
+export interface SaveFormDataRequest {
+  params: {
+    panel_id: number;
+  };
+  fixation_params: Record<string, unknown>;
+  data: Record<string, string>;
+}
+
 /**
  * Маппинг секций к обобщённому типу запроса.
  */

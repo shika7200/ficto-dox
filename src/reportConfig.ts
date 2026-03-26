@@ -34,7 +34,8 @@ const FORM_1OD_2025_PANEL_IDS: Record<string, number> = {
   SECTION_6: 4466,
 };
 
-const REPORT_17_PANEL_IDS: Record<string, number> = {
+const OO2_PANEL_IDS: Record<string, number> = {
+  SECTION_0: 4483,
   SECTION_11: 4484,
   SECTION_12: 4485,
   SECTION_13: 4488,
@@ -63,7 +64,7 @@ const reportConfigs: Record<ReportType, ReportConfig> = {
     documentId: 299,
     statusPanelId: 3289,
     defaultCompleteDocument: true,
-    panelIdBySection: REPORT_17_PANEL_IDS,
+    panelIdBySection: OO2_PANEL_IDS,
   },
   form_1od_2025: {
     mapping: form1Od2025Mapping,

@@ -1,28 +1,30 @@
 export const dataMapping = {
-  SECTION_0: {
-    status: true,
-    disabled: false,
-    content: {
-        _id: "69c37b057bda60ea291d23d6",
-        article_id: 4907,
-        grant_id: 273,
-        org_id: 12762,
-        panel_id: 4483,
-        columns: {
-            5848: "rpreport17s0r20c14_0",
-            5849: "rpreport17s0r21c6_0",
-            5850: "rpreport17s0r25c5_0",
-            5851: "rpreport17s18r2c6_0",
-            5852: "rpreport17s18r5c4_0",
-            5853: "rpreport17s18r5c6_0",
-            5854: "rpreport17s18r2c4_0"
-        },
-        "create_datetime": "2026-03-25T06:04:53.111Z",
-        "uid": 60175,
-        "uid_update": 60175,
-        "update_datetime": "2026-03-25T06:04:53.111Z"
-    }
-},
+	
+	SECTION_0: {
+      status: true,
+      disabled: false,
+      content: {
+          _id: "69c37b057bda60ea291d23d6",
+          article_id: 4907,
+          grant_id: 273,
+          org_id: 12762,
+          panel_id: 4483,
+          columns: {
+              5848: "rpreport17s0r20c14_0",
+              5849: "rpreport17s0r21c6_0",
+              5850: "rpreport17s0r25c5_0",
+              5851: "rpreport17s18r2c6_0",
+              5852: "rpreport17s18r5c4_0",
+              5853: "rpreport17s18r5c6_0",
+              5854: "rpreport17s18r2c4_0"
+          },
+          "create_datetime": "2026-03-25T06:04:53.111Z",
+          "uid": 60175,
+          "uid_update": 60175,
+          "update_datetime": "2026-03-25T06:04:53.111Z"
+      }
+	}
+	,
     SECTION_11: {
       panel_id: 4484,
       header: { 

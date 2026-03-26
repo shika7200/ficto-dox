@@ -1,7 +1,25 @@
 import { ApiService } from "./ApiService"
-import { InputJson, SaveDataRequestGeneric } from "./apiService_types"
+import { InputJson, SaveDataRequestGeneric, SaveFormDataRequest } from "./apiService_types"
 import { createSectionRequest } from "./parse_Doxcelljson"
 import { getReportConfig } from "./reportConfig"
+
+export function chooseTokenIndexForPanel(
+  panelId: number,
+  panelTokenIndex: Map<number, number>,
+  fallbackTokenIdx: number
+): number {
+  return panelTokenIndex.get(panelId) ?? fallbackTokenIdx
+}
+
+export function shouldProbeAlternativeToken(
+  strictPageBinding: boolean,
+  err: unknown
+): boolean {
+  if (strictPageBinding) return false
+  const e = err as any
+  const msg = e?.response?.data?.message ?? e?.message ?? ""
+  return String(msg).includes("Необработанная ошибка")
+}
 
 /**
  * Заполняет все секции в Ficto. Возвращает { success: true } при успешном выполнении.
@@ -28,10 +46,23 @@ export async function FictioFill(inputJson: InputJson): Promise<{ success: true 
     }
   }
 
-  const isUnhandled500 = (err: unknown): boolean => {
-    const e = err as any
-    const msg = e?.response?.data?.message ?? e?.message ?? ""
-    return String(msg).includes("Необработанная ошибка")
+  const strictPageBinding = true
+
+  const extractPanelId = (requestData: unknown): number | null => {
+    const r = requestData as any
+    const panelId = r?.panel_id ?? r?.params?.panel_id ?? null
+    return typeof panelId === "number" ? panelId : null
+  }
+
+  const sendSectionRequest = async (
+    token: string,
+    sectionKey: string,
+    requestData: unknown
+  ) => {
+    if (sectionKey === "SECTION_0") {
+      return api.saveFormData(token, requestData as SaveFormDataRequest, saveDataCtx)
+    }
+    return api.saveData(token, requestData as SaveDataRequestGeneric, saveDataCtx)
   }
 
   // #region agent log
@@ -122,32 +153,18 @@ export async function FictioFill(inputJson: InputJson): Promise<{ success: true 
     mapping,
     reportConfig.dynamicSectionKey,
     panelIdBySection
-  ) as SaveDataRequestGeneric
+  )
+  const firstPanelId = extractPanelId(firstRequest)
+  if (firstPanelId === null) {
+    throw new Error(`Не удалось определить panel_id для секции ${String(firstSectionKey)}`)
+  }
 
-  let startTokenIdx: number | null = null
-  let firstSectionAlreadySaved = false
-  const candidates = [0, 1, 2, 3, 4].filter((i) => i >= 0 && i < tokensAvailableLen)
-  for (const cand of candidates) {
-    // #region agent log
-    fetch('http://127.0.0.1:7246/ingest/9c157ceb-31b2-4b6a-87ae-fbb1790ee3c3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'fictioFill.ts:startToken:try',message:'Trying start token candidate for first section',data:{cand,sectionKey:String(firstSectionKey),panel_id:(firstRequest as any)?.panel_id ?? null,article_id:safeDecodeArticleId(initTokens[cand])},timestamp:Date.now(),sessionId:'debug-session',runId:'run7',hypothesisId:'H5'} )}).catch(()=>{});
-    // #endregion
-    try {
-      await api.saveData(initTokens[cand], firstRequest, saveDataCtx)
-      startTokenIdx = cand
-      firstSectionAlreadySaved = true
-      // #region agent log
-      fetch('http://127.0.0.1:7246/ingest/9c157ceb-31b2-4b6a-87ae-fbb1790ee3c3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'fictioFill.ts:startToken:ok',message:'Selected start token for first section',data:{startTokenIdx:cand,article_id:safeDecodeArticleId(initTokens[cand])},timestamp:Date.now(),sessionId:'debug-session',runId:'run7',hypothesisId:'H5'} )}).catch(()=>{});
-      // #endregion
-      break
-    } catch (err: any) {
-      // #region agent log
-      fetch('http://127.0.0.1:7246/ingest/9c157ceb-31b2-4b6a-87ae-fbb1790ee3c3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'fictioFill.ts:startToken:fail',message:'Start token candidate failed',data:{cand,errorMessage:err?.message ?? String(err)},timestamp:Date.now(),sessionId:'debug-session',runId:'run7',hypothesisId:'H5'} )}).catch(()=>{});
-      // #endregion
-    }
-  }
-  if (startTokenIdx === null) {
-    throw new Error("Не удалось подобрать init_token для первой секции (saveData всегда падает)")
-  }
+  // Remembers a working init_token index per `panel_id` for stable save-data routing.
+  const panelTokenIndex = new Map<number, number>()
+
+  const startTokenIdx = 0
+  const firstSectionAlreadySaved = false
+  panelTokenIndex.set(firstPanelId, startTokenIdx)
 
   // Циклическое переиспользование токенов, когда workspace меньше секций (API принимает один token для разных panel_id)
   const tokenIdxForSection = (sectionIdx: number) =>
@@ -155,8 +172,6 @@ export async function FictioFill(inputJson: InputJson): Promise<{ success: true 
 
   // Заполняем каждую секцию по порядку
   for (let sectionIdx = firstSectionAlreadySaved ? 1 : 0; sectionIdx < sectionKeys.length; sectionIdx++) {
-    const tokenIdx = tokenIdxForSection(sectionIdx)
-    const token = initTokens[tokenIdx]
     const sectionKey = sectionKeys[sectionIdx]
     
     // Создаем запрос на основе ключа секции
@@ -166,21 +181,35 @@ export async function FictioFill(inputJson: InputJson): Promise<{ success: true 
       mapping,
       reportConfig.dynamicSectionKey,
       panelIdBySection
-    ) as SaveDataRequestGeneric
+    )
+
+    const panelId = extractPanelId(requestData)
+    if (panelId === null) {
+      throw new Error(`Не удалось определить panel_id для секции ${String(sectionKey)}`)
+    }
+    const fallbackTokenIdx = tokenIdxForSection(sectionIdx)
+    const tokenIdx = chooseTokenIndexForPanel(
+      panelId,
+      panelTokenIndex,
+      fallbackTokenIdx
+    )
+    const token = initTokens[tokenIdx]
 
     // Отправляем данные
     try {
-      await api.saveData(token, requestData, saveDataCtx)
+      await sendSectionRequest(token, String(sectionKey), requestData)
+      panelTokenIndex.set(panelId, tokenIdx)
     } catch (err) {
-      // Для части panel_id backend принимает только определённый init_token (article binding).
-      if (isUnhandled500(err)) {
+      // In strict page binding mode we do not probe other tokens/articles.
+      if (shouldProbeAlternativeToken(strictPageBinding, err)) {
         let recovered = false
-        for (let probeIdx = 0; probeIdx < initTokens.length; probeIdx++) {
+        for (let probeIdx = 0; probeIdx < tokensAvailableLen; probeIdx++) {
           if (probeIdx === tokenIdx) continue
           const probeToken = initTokens[probeIdx]
           try {
-            await api.saveData(probeToken, requestData, saveDataCtx)
+            await sendSectionRequest(probeToken, String(sectionKey), requestData)
             recovered = true
+            panelTokenIndex.set(panelId, probeIdx)
             break
           } catch {
             // try next token

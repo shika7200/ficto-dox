@@ -1,8 +1,19 @@
-import { describe, expect, it, mock } from "bun:test";
+import { beforeAll, describe, expect, it, mock } from "bun:test";
 import axios from "axios";
 import { ApiService } from "../ApiService";
 
 describe("saveData retry", () => {
+  beforeAll(() => {
+    process.env.NODE_ENV = "test";
+    // Prevent ApiService "agent log" fetch calls from hitting network in unit tests.
+    (globalThis as any).fetch = async () =>
+      ({
+        ok: true,
+        status: 200,
+        json: async () => ({}),
+      }) as any;
+  });
+
   it("retries up to max attempts on 500 + 'Необработанная ошибка'", async () => {
     const post = mock()
       .mockRejectedValueOnce({

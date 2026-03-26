@@ -134,6 +134,45 @@ export function createSectionRequest(
     };
   }
 
+  // SECTION_0-like shape:
+  // {
+  //   content: { _id, panel_id, columns: { colId: factorKey } }
+  // }
+  if (mappingRows.content && mappingRows.content.columns) {
+    const panelId =
+      mappingRows.content.panel_id ||
+      (panelIdBySection && panelIdBySection[sectionKey]) ||
+      undefined;
+
+    if (!panelId) {
+      throw new Error(`Не найден panel_id для секции ${sectionKey}`);
+    }
+
+    const resultColumns: Record<string, string> = {};
+    const resolveFormFieldValue = (fieldName: string): string => {
+      const raw =
+        (inputJson.factors && fieldName in inputJson.factors
+          ? inputJson.factors[fieldName]
+          : (inputJson as any)[fieldName]) ?? "";
+      if (raw === null || raw === undefined) return "";
+      return String(raw);
+    };
+
+    for (const [colKey, fieldName] of Object.entries(mappingRows.content.columns)) {
+      if (fieldName === null) {
+        resultColumns[colKey] = "";
+      } else {
+        resultColumns[colKey] = resolveFormFieldValue(String(fieldName));
+      }
+    }
+
+    return {
+      params: { panel_id: panelId },
+      fixation_params: {},
+      data: resultColumns,
+    };
+  }
+
   throw new Error(`Неизвестная структура секции: ${sectionKey}`);
 }
 

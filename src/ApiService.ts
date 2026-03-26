@@ -2,6 +2,7 @@ import axios, { AxiosRequestConfig } from "axios";
 import { Buffer } from "buffer";
 import {
   DocumentResponse,
+  SaveFormDataRequest,
   SaveDataRequestContext,
   SaveDataRequestGeneric,
   SaveDataResponse,
@@ -308,13 +309,15 @@ export class ApiService {
     const url = "https://api.ficto.ru/client/layout/table/save-data";
 
     // #region agent log
-    fetch('http://127.0.0.1:7246/ingest/9c157ceb-31b2-4b6a-87ae-fbb1790ee3c3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ApiService.ts:saveData:meta',message:'saveData request meta',data:{hasParams:!!(data as any)?.params,params_panel_id:(data as any)?.params?.panel_id ?? null,panel_id:(data as any)?.panel_id ?? null,tableLen:Array.isArray((data as any)?.table)?(data as any).table.length:null,firstRowKeys:(Array.isArray((data as any)?.table)&& (data as any).table[0])?Object.keys((data as any).table[0]):null,firstRowHasPanelId:(Array.isArray((data as any)?.table)&& (data as any).table[0])?('panel_id' in (data as any).table[0]):false,firstRowHasTypeId:(Array.isArray((data as any)?.table)&& (data as any).table[0])?('type_id' in (data as any).table[0]):false},timestamp:Date.now(),sessionId:'debug-session',runId:'run4',hypothesisId:'V'} )}).catch(()=>{});
+    if (process.env.NODE_ENV !== "test") {
+      fetch('http://127.0.0.1:7246/ingest/9c157ceb-31b2-4b6a-87ae-fbb1790ee3c3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ApiService.ts:saveData:meta',message:'saveData request meta',data:{hasParams:!!(data as any)?.params,params_panel_id:(data as any)?.params?.panel_id ?? null,panel_id:(data as any)?.panel_id ?? null,tableLen:Array.isArray((data as any)?.table)?(data as any).table.length:null,firstRowKeys:(Array.isArray((data as any)?.table)&& (data as any).table[0])?Object.keys((data as any).table[0]):null,firstRowHasPanelId:(Array.isArray((data as any)?.table)&& (data as any).table[0])?('panel_id' in (data as any).table[0]):false,firstRowHasTypeId:(Array.isArray((data as any)?.table)&& (data as any).table[0])?('type_id' in (data as any).table[0]):false},timestamp:Date.now(),sessionId:'debug-session',runId:'run4',hypothesisId:'V'} )}).catch(()=>{});
+    }
     // #endregion
 
     // Web-parity: normalize request body and apply request-scoped headers.
     const policy: SaveDataNormalizationPolicy = {
       nullAsEmptyString: false,
-      includeRowIdField: "null",
+      includeRowIdField: "omit",
     };
     const preparedBody = prepareSaveDataPayload(data, policy);
 
@@ -380,7 +383,10 @@ export class ApiService {
 
         if (shouldRetrySaveData(status, message, attempt, maxAttempts)) {
           const backoffMs = saveDataExponentialBackoffMs(attempt, 50);
-          await new Promise((r) => setTimeout(r, backoffMs));
+          // Avoid real timers in unit tests to keep runs deterministic/fast.
+          if (process.env.NODE_ENV !== "test" && backoffMs > 0) {
+            await new Promise((r) => setTimeout(r, backoffMs));
+          }
           continue;
         }
 
@@ -389,7 +395,9 @@ export class ApiService {
     }
 
     // #region agent log
-    fetch('http://127.0.0.1:7246/ingest/9c157ceb-31b2-4b6a-87ae-fbb1790ee3c3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ApiService.ts:saveData:catch',message:'saveData error details',data:{status:lastErr?.response?.status ?? null,data:lastErr?.response?.data ?? null},timestamp:Date.now(),sessionId:'debug-session',runId:'run5',hypothesisId:'H2'} )}).catch(()=>{});
+    if (process.env.NODE_ENV !== "test") {
+      fetch('http://127.0.0.1:7246/ingest/9c157ceb-31b2-4b6a-87ae-fbb1790ee3c3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ApiService.ts:saveData:catch',message:'saveData error details',data:{status:lastErr?.response?.status ?? null,data:lastErr?.response?.data ?? null},timestamp:Date.now(),sessionId:'debug-session',runId:'run5',hypothesisId:'H2'} )}).catch(()=>{});
+    }
     // #endregion
 
     if (axios.isAxiosError(lastErr)) {
@@ -399,6 +407,69 @@ export class ApiService {
       console.error("--- saveData: Unexpected Error ---", lastErr);
     }
     this.handleRequestError(lastErr, "Ошибка сохранения данных");
+  }
+
+  async saveFormData(
+    token: string,
+    data: SaveFormDataRequest,
+    ctx?: SaveDataRequestContext
+  ): Promise<SaveDataResponse> {
+    const url = "https://api.ficto.ru/client/layout/forms/save-data";
+
+    const makeHeaders = (body: unknown): Record<string, string> => ({
+      Accept: "application/json, text/plain, */*",
+      "Accept-Encoding": "gzip, deflate, br, zstd",
+      "Accept-Language": "ru-RU,ru;q=0.9",
+      Connection: "keep-alive",
+      "Content-Type": "application/json",
+      "L-Token": token,
+      Host: "api.ficto.ru",
+      Origin: "https://client.ficto.ru",
+      Referer: "https://client.ficto.ru/",
+      "Sec-Fetch-Dest": "empty",
+      "Sec-Fetch-Mode": "cors",
+      "Sec-Fetch-Site": "same-site",
+      "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
+        "AppleWebKit/537.36 (KHTML, like Gecko) " +
+        "Chrome/134.0.0.0 Safari/537.36",
+      "sec-ch-ua":
+        '"Chromium";v="134", "Not:A-Brand";v="24", "Google Chrome";v="134"',
+      "sec-ch-ua-mobile": "?0",
+      "sec-ch-ua-platform": '"Windows"',
+      "Content-Length": String(Buffer.byteLength(JSON.stringify(body), "utf8")),
+    });
+
+    const headers = buildSaveDataHeaders(makeHeaders(data), ctx);
+    const config: AxiosRequestConfig = {
+      headers,
+      transformRequest: [(b) => JSON.stringify(b)],
+      decompress: false,
+    };
+
+    const maxAttempts = 3;
+    let lastErr: any = null;
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        const resp = await axios.post<SaveDataResponse>(url, data, config);
+        return resp.data;
+      } catch (err: any) {
+        lastErr = err;
+        const status = err?.response?.status as number | undefined;
+        const message = err?.response?.data?.message ?? err?.message;
+        if (shouldRetrySaveData(status, message, attempt, maxAttempts)) {
+          const backoffMs = saveDataExponentialBackoffMs(attempt, 50);
+          if (process.env.NODE_ENV !== "test" && backoffMs > 0) {
+            await new Promise((r) => setTimeout(r, backoffMs));
+          }
+          continue;
+        }
+        break;
+      }
+    }
+
+    this.handleRequestError(lastErr, "Ошибка сохранения реквизитов");
   }
 
   /**
