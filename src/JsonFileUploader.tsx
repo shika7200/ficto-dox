@@ -9,6 +9,8 @@ interface FileItem {
   status: 'pending' | 'uploading' | 'success' | 'error'
   result?: { success: boolean }
   error?: string
+  /** Ошибки check-errors с бэкенда для этой выгрузки (раскрываются в UI). */
+  checkErrors?: unknown[]
 }
 
 const JsonFileUploader: React.FC = () => {
@@ -75,18 +77,29 @@ const JsonFileUploader: React.FC = () => {
           fetch('http://127.0.0.1:7246/ingest/9c157ceb-31b2-4b6a-87ae-fbb1790ee3c3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'JsonFileUploader.tsx:fetch:body',message:'Response body preview',data:{fileName:item.file.name,bodyLen:respText.length,bodyPreview:respText.slice(0,220)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'} )}).catch(()=>{});
           // #endregion
 
-          const data: { success?: boolean; error?: string } = (() => {
+          const data: {
+            success?: boolean
+            error?: string
+            checkErrors?: unknown[]
+          } = (() => {
             try {
               return JSON.parse(respText)
             } catch {
               return {}
             }
           })()
+          const ok = resp.ok && data.success
           updateFile(item.file, {
-            status: resp.ok && data.success ? 'success' : 'error',
+            status: ok ? 'success' : 'error',
             progress: 100,
             result: { success: !!data.success },
-            error: !resp.ok ? (data.error || `HTTP ${resp.status}`) : undefined
+            error: !ok ? (data.error || `HTTP ${resp.status}`) : undefined,
+            checkErrors:
+              !ok &&
+              Array.isArray(data.checkErrors) &&
+              data.checkErrors.length > 0
+                ? data.checkErrors
+                : undefined
           })
         } catch (err: unknown) {
           const message = err instanceof Error ? err.message : 'Unknown error'
@@ -185,8 +198,20 @@ const JsonFileUploader: React.FC = () => {
                   </div>
                 )}
                 {item.status === 'error' && (
-                  <div className="json-uploader-error-message">
-                    ✗ {item.error || 'Произошла ошибка при обработке файла'}
+                  <div className="json-uploader-error-block">
+                    <div className="json-uploader-error-message">
+                      ✗ {item.error || 'Произошла ошибка при обработке файла'}
+                    </div>
+                    {item.checkErrors != null && item.checkErrors.length > 0 && (
+                      <details className="json-uploader-error-details">
+                        <summary className="json-uploader-error-details-summary">
+                          Подробности проверки документа ({item.checkErrors.length})
+                        </summary>
+                        <pre className="json-uploader-error-details-pre" tabIndex={0}>
+                          {JSON.stringify(item.checkErrors, null, 2)}
+                        </pre>
+                      </details>
+                    )}
                   </div>
                 )}
               </div>

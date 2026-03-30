@@ -156,6 +156,11 @@
   background: #fff5f5;
 }
 
+.json-uploader-file-item--check-warn {
+  border-color: #dd6b20;
+  background: #fffaf0;
+}
+
 .json-uploader-file-item--uploading {
   border-color: #4299e1;
   background: #ebf8ff;
@@ -223,11 +228,68 @@
   margin-top: 0.5rem;
 }
 
+.json-uploader-check-summary {
+  margin-top: 0.5rem;
+}
+
+.json-uploader-check-meta {
+  font-size: 0.75rem;
+  color: #718096;
+  margin-bottom: 0.35rem;
+  font-family: ui-monospace, monospace;
+}
+
+.json-uploader-check-warn-msg {
+  color: #c05621;
+  font-size: 0.875rem;
+  font-weight: 600;
+  margin-top: 0.35rem;
+}
+
+.json-uploader-error-block {
+  margin-top: 0.5rem;
+}
+
 .json-uploader-error-message {
   color: #f56565;
   font-size: 0.875rem;
   font-weight: 500;
-  margin-top: 0.5rem;
+}
+
+.json-uploader-error-details {
+  margin-top: 0.75rem;
+  border-radius: 8px;
+  border: 1px solid #feb2b2;
+  background: #fff;
+  overflow: hidden;
+}
+
+.json-uploader-error-details-summary {
+  cursor: pointer;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #c53030;
+  list-style-position: outside;
+  user-select: none;
+}
+
+.json-uploader-error-details-summary:hover {
+  background: rgba(245, 101, 101, 0.06);
+}
+
+.json-uploader-error-details-pre {
+  margin: 0;
+  padding: 0.75rem;
+  max-height: 320px;
+  overflow: auto;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: #2d3748;
+  background: #f7fafc;
+  border-top: 1px solid #e2e8f0;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 @media (max-width: 640px) {

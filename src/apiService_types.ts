@@ -105,6 +105,10 @@ export interface InputJson {
   documentId: string;
   reportType?: ReportType;
   completeDocument?: boolean;
+  /** Переопределить panel_id для check-errors (если не задано — из reportConfig). */
+  checkErrorsPanelId?: number;
+  /** Переопределить document_id для check-errors (если не задано — fallback в логике). */
+  fictoDocumentId?: number;
   factors: Record<string, string>;
 }
 

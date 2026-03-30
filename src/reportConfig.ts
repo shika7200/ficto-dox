@@ -6,7 +6,13 @@ export type ReportConfig = {
   mapping: Record<string, unknown>;
   dynamicSectionKey?: string;
   documentId?: number;
+  /** Панель для status / complete / блокировок (из шаблона Ficto). */
   statusPanelId?: number;
+  /**
+   * Панель для API check-errors. Должна входить в layout документа; иначе 409 «Запрещено использование данной панели».
+   * По умолчанию для ОО-2 — SECTION_0 (та же, что для реквизитов), не «статусная» 3289 от doc 299.
+   */
+  checkErrorsPanelId?: number;
   defaultCompleteDocument?: boolean;
   panelIdBySection?: Record<string, number>;
   runCheckErrorsAfterFill: boolean;
@@ -65,10 +71,13 @@ const reportConfigs: Record<ReportType, ReportConfig> = {
     dynamicSectionKey: "SECTION_11",
     documentId: 299,
     statusPanelId: 3289,
+    // panel_id для check-errors (подобран под текущий layout для ОО-2)
+    checkErrorsPanelId: 4482,
     defaultCompleteDocument: true,
     panelIdBySection: OO2_PANEL_IDS,
-    runCheckErrorsAfterFill: true,
-    runCheckErrorsAfterEachSection: true,
+    // Временно отключаем check-errors на этапе загрузки/заполнения данных.
+    runCheckErrorsAfterFill: false,
+    runCheckErrorsAfterEachSection: false,
   },
   form_1od_2025: {
     mapping: form1Od2025Mapping,

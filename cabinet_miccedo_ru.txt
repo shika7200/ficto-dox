@@ -1,0 +1,68 @@
+https://cabinet.miccedu.ru/
+Form Data
+  ltype=default&login=5069&pswrd=46458129
+
+https://cabinet.miccedu.ru/object/
+cookie
+  ologin=5069; opassword=46458129; ltype=default
+    <div id='sert-object' style='display:none;'>4921</div></div><div class='well well-sm'><a href='https://client.ficto.ru/transaction/?access_code=cf4254d1-345e-460d-b8bf-76ad2a87d5b8&client_id=cabinetmiccedu2' class='btn btn-primary'>Заполнить форму</a></div>
+	
+https://client.ficto.ru/transaction/?access_code=cf4254d1-345e-460d-b8bf-76ad2a87d5b8&client_id=cabinetmiccedu2
+  access_code=cf4254d1-345e-460d-b8bf-76ad2a87d5b8&client_id=cabinetmiccedu2
+  
+https://api.ficto.ru/client/entitlement?client_id=cabinetmiccedu2&access_code=cf4254d1-345e-460d-b8bf-76ad2a87d5b8
+{
+    "status": true,
+    "request": {
+        "users_entitlement": [
+            {
+                "uid": 48757,
+                "fio": "Прокопьева Е.Н.",
+                "appointment": "Директор"
+            }
+        ],
+        "grant": {
+            "id": 273,
+            "name": "Форма ФСН № ОО-2 за 2025 календарный год",
+            "namespace_tag": "school"
+        },
+        "org_data": {
+            "org_id": 4921,
+            "name": "муниципальное казённое общеобразовательное учреждение \"Кураковская основная общеобразовательная школа\""
+        },
+        "invite": {
+            "access_code": "cf4254d1-345e-460d-b8bf-76ad2a87d5b8",
+            "invite_code": "3c609995-277d-454e-97d4-c5e348749ae5",
+            "invite_expires_on": "1774944878"
+        }
+    }
+}
+
+https://api.ficto.ru/client/entitlement?client_id=cabinetmiccedu2&access_code=645dd623-92c5-4c4f-aef0-1a2a509ee5d0
+
+{
+    "status": true,
+    "request": {
+        "users_entitlement": [
+            {
+                "uid": 48757,
+                "fio": "Прокопьева Е.Н.",
+                "appointment": "Директор"
+            }
+        ],
+        "grant": {
+            "id": 273,
+            "name": "Форма ФСН № ОО-2 за 2025 календарный год",
+            "namespace_tag": "school"
+        },
+        "org_data": {
+            "org_id": 4921,
+            "name": "муниципальное казённое общеобразовательное учреждение \"Кураковская основная общеобразовательная школа\""
+        },
+        "invite": {
+            "access_code": "645dd623-92c5-4c4f-aef0-1a2a509ee5d0",
+            "invite_code": "dcdfcdbe-1046-4b86-9372-3601ead64fa0",
+            "invite_expires_on": "1774943322"
+        }
+    }
+}

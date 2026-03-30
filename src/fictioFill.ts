@@ -1,5 +1,6 @@
 import { ApiService } from "./ApiService"
 import { InputJson, SaveDataRequestGeneric, SaveFormDataRequest } from "./apiService_types"
+import { DocumentCheckErrorsError } from "./documentCheckErrorsError"
 import { createSectionRequest } from "./parse_Doxcelljson"
 import { getReportConfig } from "./reportConfig"
 
@@ -100,27 +101,42 @@ export async function FictioFill(inputJson: InputJson): Promise<{ success: true 
   // #endregion
   const documentId = Number(inputJson.documentId) || reportConfig.documentId
   const statusPanelId = reportConfig.statusPanelId
+  const checkErrorsPanelId =
+    (typeof inputJson.checkErrorsPanelId === "number" &&
+    Number.isFinite(inputJson.checkErrorsPanelId)
+      ? inputJson.checkErrorsPanelId
+      : undefined) ??
+    reportConfig.checkErrorsPanelId ??
+    statusPanelId
   const saveDataCtx = {
     fingerprint: String(documentId),
     sessionId: "debug-session",
   }
 
   const assertDocumentHasNoCheckErrors = async () => {
-    if (!documentId || !statusPanelId) return
+    // Historical behaviour: check-errors in Ficto UI uses a fixed document_id.
+    const checkErrorsDocumentId = 339
+    if (!checkErrorsPanelId) return
     const checkResult = await api.checkErrors(
-      documentId,
-      statusPanelId,
+      checkErrorsDocumentId,
+      checkErrorsPanelId,
       7,
       statusToken
     )
     if (Array.isArray(checkResult.errors) && checkResult.errors.length > 0) {
       console.error("Обнаружены ошибки при проверке документа:", checkResult.errors)
-      throw new Error("Обнаружены ошибки в документе — завершение отменено")
+      throw new DocumentCheckErrorsError(
+        "Обнаружены ошибки в документе — завершение отменено",
+        checkResult.errors
+      )
     }
   }
 
   const afterSectionSavedIfNeeded = async () => {
-    if (reportConfig.runCheckErrorsAfterEachSection && documentId && statusPanelId) {
+    if (
+      reportConfig.runCheckErrorsAfterEachSection &&
+      checkErrorsPanelId
+    ) {
       await assertDocumentHasNoCheckErrors()
     }
   }
@@ -248,8 +264,7 @@ export async function FictioFill(inputJson: InputJson): Promise<{ success: true 
 
   if (
     reportConfig.runCheckErrorsAfterFill &&
-    documentId &&
-    statusPanelId &&
+    checkErrorsPanelId &&
     !reportConfig.runCheckErrorsAfterEachSection
   ) {
     await assertDocumentHasNoCheckErrors()

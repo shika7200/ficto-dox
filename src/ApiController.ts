@@ -3,6 +3,8 @@ import { exportAllHandler } from './ExportAllHandler'
 
 import { InputJson } from './apiService_types'
 import { processAllUsers } from './ ProcessAllHandler'
+import { DocumentCheckErrorsError } from './documentCheckErrorsError'
+import { FictioCheckOnly } from './fictioCheckOnly'
 import { FictioFill } from './fictioFill'
 import { buildCheckAccountsXlsx, checkAccounts, CheckAccountInputRow } from './CheckAccountsHandler'
 
@@ -131,9 +133,31 @@ app.post('/api/fill', async ({ body }) => {
     )
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error'
+    const body: { error: string; checkErrors?: unknown[] } = { error: message }
+    if (error instanceof DocumentCheckErrorsError) {
+      body.checkErrors = error.errors
+    }
     // #region agent log
-    fetch('http://127.0.0.1:7246/ingest/9c157ceb-31b2-4b6a-87ae-fbb1790ee3c3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ApiController.ts:/api/fill:catch',message:'Error in /api/fill',data:{errorMessage:message,errorType:error instanceof Error ? error.name : typeof error},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'} )}).catch(()=>{});
+    fetch('http://127.0.0.1:7246/ingest/9c157ceb-31b2-4b6a-87ae-fbb1790ee3c3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ApiController.ts:/api/fill:catch',message:'Error in /api/fill',data:{errorMessage:message,errorType:error instanceof Error ? error.name : typeof error,hasCheckErrors:body.checkErrors!=null},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'} )}).catch(()=>{});
     // #endregion
+    return new Response(
+      JSON.stringify(body),
+      { status: 500, headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } }
+    )
+  }
+})
+
+// Только check-errors по JSON (без заполнения секций)
+app.post('/api/checkDocument', async ({ body }) => {
+  try {
+    const inputJson = (await body) as InputJson
+    const result = await FictioCheckOnly(inputJson)
+    return new Response(
+      JSON.stringify({ success: true, ...result }),
+      { headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } }
+    )
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error'
     return new Response(
       JSON.stringify({ error: message }),
       { status: 500, headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } }
