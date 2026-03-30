@@ -4,6 +4,7 @@ import { exportAllHandler } from './ExportAllHandler'
 import { InputJson } from './apiService_types'
 import { processAllUsers } from './ ProcessAllHandler'
 import { FictioFill } from './fictioFill'
+import { buildCheckAccountsXlsx, checkAccounts, CheckAccountInputRow } from './CheckAccountsHandler'
 
 
 const app = new Elysia()
@@ -42,6 +43,48 @@ app.post('/api/processAll', async ({ body }) => {
       JSON.stringify({ error: message }),
       { status: 500, headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } }
     )
+  }
+})
+
+// Проверка логинов/паролей из XLSX (B=организация, C=логин, D=пароль на стороне UI)
+app.post('/api/checkAccounts', async ({ body }) => {
+  try {
+    const parsed = (await body) as unknown
+    const rows = (parsed as any)?.rows as unknown
+
+    if (!Array.isArray(rows)) {
+      return new Response(JSON.stringify({ error: 'Ожидается { rows: [...] }' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+      })
+    }
+
+    const typedRows: CheckAccountInputRow[] = rows.map((r: any) => ({
+      orgName: r?.orgName,
+      login: r?.login,
+      password: r?.password
+    }))
+
+    const checked = await checkAccounts(typedRows, { concurrency: 5 })
+    const xlsx = buildCheckAccountsXlsx(checked)
+    const filename = `accounts_check_${new Date().toISOString().slice(0, 10)}.xlsx`
+
+    return new Response(xlsx, {
+      headers: {
+        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Disposition': `attachment; filename="${filename}"`,
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Expose-Headers': 'Content-Disposition',
+        'Cache-Control': 'no-store'
+      }
+    })
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    console.error('Ошибка в /api/checkAccounts:', message)
+    return new Response(JSON.stringify({ error: message }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+    })
   }
 })
 

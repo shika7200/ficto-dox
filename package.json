@@ -9,7 +9,8 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "check-accounts": "bun run src/checkNewAccounts.ts"
+    "check-accounts": "bun run src/checkNewAccounts.ts",
+    "check-accounts-xlsx": "bun run src/checkAccountsFromXlsx.ts"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.74.4",

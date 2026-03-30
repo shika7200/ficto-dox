@@ -1,17 +1,17 @@
 export const dataMapping = {
     
 	SECTION_1_1: /*panel_id: 4447*/[
-      { row_id: 85358, columns: { 51666: "rpreport6s1r1c1_0", 51667: "rpreport6s1r1c2_0"51668: "rpreport6s1r1c3_0" } },
-      { row_id: 85359, columns: { 51666: "rpreport6s1r2c1_0", 51667: "rpreport6s1r2c2_0"51668: "rpreport6s1r2c3_0" } },
-      { row_id: 85360, columns: { 51666: "rpreport6s1r3c1_0", 51667: "rpreport6s1r3c2_0"51668: "rpreport6s1r3c3_0" } },
-      { row_id: 85361, columns: { 51666: "rpreport6s1r4c1_0", 51667: "rpreport6s1r4c2_0"51668: "rpreport6s1r4c3_0" } },
-      { row_id: 85362, columns: { 51666: "rpreport6s1r5c1_0", 51667: "rpreport6s1r5c2_0"51668: "rpreport6s1r5c3_0" } },
-      { row_id: 85363, columns: { 51666: "rpreport6s1r6c1_0", 51667: "rpreport6s1r6c2_0"51668: "rpreport6s1r6c3_0" } },
-      { row_id: 85364, columns: { 51666: "rpreport6s1r7c1_0", 51667: "rpreport6s1r7c2_0"51668: "rpreport6s1r7c3_0" } },
-      { row_id: 85365, columns: { 51666: "rpreport6s1r8c1_0", 51667: "rpreport6sqr8c2_0"51668: "rpreport6s1r8c3_0" } },
-      { row_id: 85366, columns: { 51666: "rpreport6s1r9c1_0", 51667: "rpreport6s1r9c2_0"51668: "rpreport6s1r9c3_0" } },
-      { row_id: 85367, columns: { 51666: "rpreport6s1r10c1_0", 51667: "rpreport6s1r10c2_0"51668: "rpreport6s1r10c3_0" } },
-      { row_id: 85368, columns: { 51666: "rpreport6s1r11c1_0", 51667: "rpreport6s1r11c2_0"51668: "rpreport6s1r11c3_0" } },
+      { row_id: 85358, columns: { 51666: "rpreport6s1r1c1_0", 51667: "rpreport6s1r1c2_0", 51668: "rpreport6s1r1c3_0" } },
+      { row_id: 85359, columns: { 51666: "rpreport6s1r2c1_0", 51667: "rpreport6s1r2c2_0", 51668: "rpreport6s1r2c3_0" } },
+      { row_id: 85360, columns: { 51666: "rpreport6s1r3c1_0", 51667: "rpreport6s1r3c2_0", 51668: "rpreport6s1r3c3_0" } },
+      { row_id: 85361, columns: { 51666: "rpreport6s1r4c1_0", 51667: "rpreport6s1r4c2_0", 51668: "rpreport6s1r4c3_0" } },
+      { row_id: 85362, columns: { 51666: "rpreport6s1r5c1_0", 51667: "rpreport6s1r5c2_0", 51668: "rpreport6s1r5c3_0" } },
+      { row_id: 85363, columns: { 51666: "rpreport6s1r6c1_0", 51667: "rpreport6s1r6c2_0", 51668: "rpreport6s1r6c3_0" } },
+      { row_id: 85364, columns: { 51666: "rpreport6s1r7c1_0", 51667: "rpreport6s1r7c2_0", 51668: "rpreport6s1r7c3_0" } },
+      { row_id: 85365, columns: { 51666: "rpreport6s1r8c1_0", 51667: "rpreport6sqr8c2_0", 51668: "rpreport6s1r8c3_0" } },
+      { row_id: 85366, columns: { 51666: "rpreport6s1r9c1_0", 51667: "rpreport6s1r9c2_0", 51668: "rpreport6s1r9c3_0" } },
+      { row_id: 85367, columns: { 51666: "rpreport6s1r10c1_0", 51667: "rpreport6s1r10c2_0", 51668: "rpreport6s1r10c3_0" } },
+      { row_id: 85368, columns: { 51666: "rpreport6s1r11c1_0", 51667: "rpreport6s1r11c2_0", 51668: "rpreport6s1r11c3_0" } },
     ],
     SECTION_1_2: /*panel_id: 4448*/[
       { row_id: 85371, columns: { 51671: "rpreport6s2r1c1_0" } },

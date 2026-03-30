@@ -23,7 +23,7 @@ export const dataMapping = {
           "uid_update": 60175,
           "update_datetime": "2026-03-25T06:04:53.111Z"
       }
-	},
+	}
 	
     SECTION_11: {
       panel_id: 4484,

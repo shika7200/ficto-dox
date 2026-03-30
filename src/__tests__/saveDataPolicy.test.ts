@@ -7,12 +7,14 @@ import {
 
 describe("saveData policy", () => {
   it("converts null cell to empty string when policy says so", () => {
-    expect(normalizeCellValue(null, { nullAsEmptyString: true })).toBe("");
+    expect(
+      normalizeCellValue(null, { nullAsEmptyString: true, includeRowIdField: "omit" })
+    ).toBe("");
   });
 
   it("keeps null when policy disables conversion", () => {
     expect(
-      normalizeCellValue(null, { nullAsEmptyString: false })
+      normalizeCellValue(null, { nullAsEmptyString: false, includeRowIdField: "omit" })
     ).toBeNull();
   });
 
