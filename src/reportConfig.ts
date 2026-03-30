@@ -9,6 +9,8 @@ export type ReportConfig = {
   statusPanelId?: number;
   defaultCompleteDocument?: boolean;
   panelIdBySection?: Record<string, number>;
+  runCheckErrorsAfterFill: boolean;
+  runCheckErrorsAfterEachSection: boolean;
 };
 
 const FORM_1OD_2025_PANEL_IDS: Record<string, number> = {
@@ -65,6 +67,8 @@ const reportConfigs: Record<ReportType, ReportConfig> = {
     statusPanelId: 3289,
     defaultCompleteDocument: true,
     panelIdBySection: OO2_PANEL_IDS,
+    runCheckErrorsAfterFill: true,
+    runCheckErrorsAfterEachSection: true,
   },
   form_1od_2025: {
     mapping: form1Od2025Mapping,
@@ -73,6 +77,8 @@ const reportConfigs: Record<ReportType, ReportConfig> = {
     documentId: 299,
     statusPanelId: 4448,
     panelIdBySection: FORM_1OD_2025_PANEL_IDS,
+    runCheckErrorsAfterFill: false,
+    runCheckErrorsAfterEachSection: false,
   },
 };
 
