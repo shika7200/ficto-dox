@@ -105,6 +105,26 @@ export async function FictioFill(inputJson: InputJson): Promise<{ success: true 
     sessionId: "debug-session",
   }
 
+  const assertDocumentHasNoCheckErrors = async () => {
+    if (!documentId || !statusPanelId) return
+    const checkResult = await api.checkErrors(
+      documentId,
+      statusPanelId,
+      7,
+      statusToken
+    )
+    if (Array.isArray(checkResult.errors) && checkResult.errors.length > 0) {
+      console.error("Обнаружены ошибки при проверке документа:", checkResult.errors)
+      throw new Error("Обнаружены ошибки в документе — завершение отменено")
+    }
+  }
+
+  const afterSectionSavedIfNeeded = async () => {
+    if (reportConfig.runCheckErrorsAfterEachSection && documentId && statusPanelId) {
+      await assertDocumentHasNoCheckErrors()
+    }
+  }
+
   // #region agent log
   fetch('http://127.0.0.1:7246/ingest/9c157ceb-31b2-4b6a-87ae-fbb1790ee3c3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'fictioFill.ts:status:inputs',message:'Status inputs resolved',data:{documentId:documentId??null,statusPanelId:statusPanelId??null,shouldComplete},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'P'} )}).catch(()=>{});
   // #endregion
@@ -199,6 +219,7 @@ export async function FictioFill(inputJson: InputJson): Promise<{ success: true 
     try {
       await sendSectionRequest(token, String(sectionKey), requestData)
       panelTokenIndex.set(panelId, tokenIdx)
+      await afterSectionSavedIfNeeded()
     } catch (err) {
       // In strict page binding mode we do not probe other tokens/articles.
       if (shouldProbeAlternativeToken(strictPageBinding, err)) {
@@ -210,6 +231,7 @@ export async function FictioFill(inputJson: InputJson): Promise<{ success: true 
             await sendSectionRequest(probeToken, String(sectionKey), requestData)
             recovered = true
             panelTokenIndex.set(panelId, probeIdx)
+            await afterSectionSavedIfNeeded()
             break
           } catch {
             // try next token
@@ -224,20 +246,14 @@ export async function FictioFill(inputJson: InputJson): Promise<{ success: true 
     }
   }
 
-  if (shouldComplete && documentId && statusPanelId) {
-    // Проверяем документ на ошибки
-    const checkResult = await api.checkErrors(
-      documentId,
-      statusPanelId,
-      7,
-      statusToken
-    )
-    if (Array.isArray(checkResult.errors) && checkResult.errors.length > 0) {
-      console.error("Обнаружены ошибки при проверке документа:", checkResult.errors)
-      throw new Error("Обнаружены ошибки в документе — завершение отменено")
-    }
+  if (
+    reportConfig.runCheckErrorsAfterFill &&
+    documentId &&
+    statusPanelId &&
+    !reportConfig.runCheckErrorsAfterEachSection
+  ) {
+    await assertDocumentHasNoCheckErrors()
   }
-
 
   if (shouldComplete && documentId && statusPanelId) {
     const refreshedInitTokens = await api.getInitTokens(uuid, access_token, { requiredCount: 1 })
