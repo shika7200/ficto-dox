@@ -21,7 +21,10 @@ export async function FictioCheckOnly(
   const email = inputJson.fictoLogin
   const password = inputJson.fictoPass
 
-  const { access_token } = await api.login(email, password)
+  const { access_token } = await api.login(email, password, {
+    miccedoLogin: inputJson.micceduLogin,
+    miccedoPass: inputJson.micceduPass,
+  })
   const uuid = await api.getUuid(access_token)
   const initTokens = await api.getInitTokens(uuid, access_token, {
     requiredCount: 1,

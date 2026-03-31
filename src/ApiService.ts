@@ -1,4 +1,5 @@
 import axios, { AxiosRequestConfig } from "axios";
+import https from "https";
 import { Buffer } from "buffer";
 import {
   DocumentResponse,
@@ -14,6 +15,45 @@ import {
   shouldRetrySaveData,
   type SaveDataNormalizationPolicy,
 } from "./saveDataPolicy";
+
+type TokenPair = {
+  access_token: string;
+  refresh_token: string;
+};
+
+type LoginOptions = {
+  /**
+   * Логин от `cabinet.miccedu.ru` для fallback-авторизации.
+   * Если не задан, используется `emailOrLogin` из обычного входа.
+   */
+  miccedoLogin?: string;
+  /**
+   * Пароль от `cabinet.miccedu.ru` для fallback-авторизации.
+   * Если не задан, используется `password` из обычного входа.
+   */
+  miccedoPass?: string;
+};
+
+type MiccedoTransactionCandidate = {
+  access_code: string;
+  client_id: string;
+};
+
+type EntitlementResponse = {
+  request?: {
+    users_entitlement?: Array<{ uid?: number }>;
+    invite?: {
+      access_code?: string;
+      invite_code?: string;
+    };
+  };
+};
+
+type OrgAuthResponse = {
+  status?: boolean;
+  access_token?: string;
+  refresh_token?: string;
+};
 
 /**
  * Сервис для работы с API Ficto.
@@ -54,19 +94,282 @@ export class ApiService {
   }
 
   /**
+   * Преобразует `Set-Cookie` заголовки в простую cookie-банку.
+   *
+   * Зачем это нужно:
+   * - `cabinet.miccedu.ru` использует cookie-сессию;
+   * - в Node/axios cookie не сохраняются автоматически между запросами;
+   * - поэтому мы вручную извлекаем `key=value` из `Set-Cookie`.
+   */
+  private parseSetCookieHeaders(
+    setCookie: string[] | string | undefined
+  ): Record<string, string> {
+    if (!setCookie) return {}
+    const arr = Array.isArray(setCookie) ? setCookie : [setCookie]
+    const jar: Record<string, string> = {}
+
+    for (const rawSetCookieHeader of arr) {
+      // Пример Set-Cookie:
+      // "ologin=5069; expires=...; path=/; domain=.cabinet.miccedu.ru"
+      // Нам нужна только первая часть до ';' => "ologin=5069".
+      const firstCookiePart = rawSetCookieHeader.split(";")[0]
+
+      // Разделяем имя cookie и его значение по первому '='.
+      const equalsSignIndex = firstCookiePart.indexOf("=")
+      if (equalsSignIndex <= 0) continue
+
+      const cookieName = firstCookiePart.slice(0, equalsSignIndex).trim()
+      const cookieValue = firstCookiePart.slice(equalsSignIndex + 1).trim()
+      if (!cookieName) continue
+
+      jar[cookieName] = cookieValue
+    }
+
+    return jar
+  }
+
+  /**
+   * Собирает заголовок `Cookie` для следующего HTTP-запроса.
+   */
+  private buildCookieHeader(jar: Record<string, string>): string {
+    const cookiePairs = Object.entries(jar).map(
+      ([cookieName, cookieValue]) => `${cookieName}=${cookieValue}`
+    )
+    return cookiePairs.join("; ")
+  }
+
+  /**
+   * Нормализует сообщение ошибки для логов/исключений.
+   */
+  private extractAxiosErrorMessage(error: unknown): string {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const e: any = error
+    if (axios.isAxiosError(e)) {
+      const status = e.response?.status
+      const dataMessage =
+        e.response?.data?.message ?? e.response?.data ?? e.message
+      return status ? `HTTP ${status}: ${String(dataMessage)}` : String(dataMessage)
+    }
+    if (e instanceof Error) return e.message
+    return String(e)
+  }
+
+  /**
+   * Определяет типичные TLS-ошибки проверки сертификатной цепочки.
+   */
+  private isTlsChainError(error: unknown): boolean {
+    const msg = this.extractAxiosErrorMessage(error).toLowerCase()
+    return (
+      msg.includes("unable to verify the first certificate") ||
+      msg.includes("self-signed certificate") ||
+      msg.includes("unable to get local issuer certificate")
+    )
+  }
+
+  /**
+   * Грубая эвристика: похоже ли это на ошибку авторизации.
+   *
+   * Нужна, чтобы fallback в miccedo включался только на auth-фейлах,
+   * а не маскировал сетевые/внутренние ошибки Ficto API.
+   */
+  private isProbablyAuthFailure(error: unknown): boolean {
+    if (!axios.isAxiosError(error)) return false
+    const status = error.response?.status
+    if (status === 401 || status === 403 || status === 409) return true
+
+    // Sometimes auth errors come as 400 with message.
+    if (status === 400) {
+      const msg = this.extractAxiosErrorMessage(error).toLowerCase()
+      return msg.includes("логин") || msg.includes("парол") || msg.includes("unauthor")
+    }
+
+    // Fallback: if backend message clearly points to auth creds.
+    const msg = this.extractAxiosErrorMessage(error).toLowerCase()
+    if (msg.includes("логин") || msg.includes("парол") || msg.includes("unauthor")) {
+      return true
+    }
+
+    return false
+  }
+
+  /**
+   * Выполняет fallback-авторизацию через `cabinet.miccedu.ru`.
+   *
+   * Цепочка:
+   * 1) POST login в miccedo (получаем cookie-сессию);
+   * 2) GET `/object/` с cookies и парсим `access_code/client_id` из HTML;
+   * 3) GET `/client/entitlement` для получения `uid` и `invite_code`;
+   * 4) POST `/client/entitlement/orgauth` и получаем пару токенов Ficto.
+   *
+   * @returns `access_token/refresh_token` в формате Ficto API.
+   */
+  private async loginViaMiccedo(
+    miccedoLogin: string,
+    miccedoPassword: string
+  ): Promise<TokenPair> {
+    const ltype = "default"
+    const form = new URLSearchParams({
+      ltype,
+      login: String(miccedoLogin).trim(),
+      pswrd: String(miccedoPassword),
+    }).toString()
+
+    /**
+     * Локальный шаг логина в miccedo + чтение `/object/`.
+     * При `allowInsecureTls=true` используется агент с `rejectUnauthorized=false`
+     * только для этой ветки, чтобы пережить проблемы с цепочкой сертификатов.
+     */
+    const miccedoRequest = async (allowInsecureTls: boolean) => {
+      const insecureAgent = allowInsecureTls
+        ? new https.Agent({ rejectUnauthorized: false })
+        : undefined
+      const commonCfg = {
+        httpsAgent: insecureAgent,
+        validateStatus: () => true,
+      }
+
+      const loginResp = await axios.post(
+        "https://cabinet.miccedu.ru/",
+        form,
+        {
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+          },
+          maxRedirects: 0,
+          ...commonCfg,
+        }
+      )
+
+      const jar = this.parseSetCookieHeaders(loginResp.headers["set-cookie"])
+      if (Object.keys(jar).length === 0) {
+        throw new Error("Miccedo: не удалось получить cookies после логина")
+      }
+
+      const objectResp = await axios.get(
+        "https://cabinet.miccedu.ru/object/",
+        {
+          headers: { Cookie: this.buildCookieHeader(jar) },
+          ...commonCfg,
+        }
+      )
+
+      return objectResp
+    }
+
+    let objectResp: { data: unknown }
+    try {
+      objectResp = await miccedoRequest(false)
+    } catch (e) {
+      if (!this.isTlsChainError(e)) throw e
+      // Some environments fail to build trust chain for miccedo certificate.
+      // Retry only miccedo requests with relaxed verification.
+      objectResp = await miccedoRequest(true)
+    }
+
+    const html: string = typeof objectResp.data === "string" ? objectResp.data : ""
+    if (!html) {
+      throw new Error("Miccedo: не удалось прочитать /object/ html")
+    }
+
+    // Ищем в HTML все ссылки формата:
+    // https://client.ficto.ru/transaction/?access_code=...&client_id=...
+    // Группа 1 = access_code, группа 2 = client_id.
+    const transactionLinkPattern =
+      /transaction\/\?access_code=([^&"'\\s]+)&client_id=([^&"'\\s]+)/g
+    const candidates: MiccedoTransactionCandidate[] = []
+
+    let transactionMatch: RegExpExecArray | null = null
+    while (true) {
+      transactionMatch = transactionLinkPattern.exec(html)
+      if (!transactionMatch) break
+
+      candidates.push({
+        access_code: decodeURIComponent(transactionMatch[1]),
+        client_id: decodeURIComponent(transactionMatch[2]),
+      })
+    }
+
+    if (candidates.length === 0) {
+      throw new Error("Miccedo: не найден transaction access_code/client_id")
+    }
+
+    let lastErr: unknown = null
+    for (const cand of candidates) {
+      try {
+        const entResp = await axios.get<EntitlementResponse>(
+          "https://api.ficto.ru/client/entitlement",
+          { params: { client_id: cand.client_id, access_code: cand.access_code } }
+        )
+
+        const ent = entResp.data
+        const uid: number | undefined = ent?.request?.users_entitlement?.[0]?.uid
+        const inviteAccessCode: string | undefined =
+          ent?.request?.invite?.access_code
+        const inviteCode: string | undefined = ent?.request?.invite?.invite_code
+
+        if (!uid || !inviteAccessCode || !inviteCode) {
+          throw new Error("Miccedo: entitlement не содержит uid/invite_code")
+        }
+
+        const orgAuthResp = await axios.post<OrgAuthResponse>(
+          "https://api.ficto.ru/client/entitlement/orgauth",
+          {
+            access_code: inviteAccessCode,
+            invite_code: inviteCode,
+            uid,
+          },
+          { validateStatus: () => true }
+        )
+
+        const body = orgAuthResp.data
+        if (body?.status && body?.access_token && body?.refresh_token) {
+          return {
+            access_token: body.access_token,
+            refresh_token: body.refresh_token,
+          }
+        }
+
+        throw new Error(
+          `Miccedo: orgauth вернул неожиданный ответ: ${JSON.stringify(body).slice(
+            0,
+            300
+          )}`
+        )
+      } catch (e) {
+        lastErr = e
+      }
+    }
+
+    throw new Error(
+      `Miccedo fallback не сработал. Последняя ошибка: ${this.extractAxiosErrorMessage(
+        lastErr
+      )}`
+    )
+  }
+
+  /**
    * Выполняет авторизацию пользователя.
    *
-   * @param emailOrLogin - Email или логин пользователя.
-   * @param password - Пароль пользователя.
-   * @returns Объект с access_token и refresh_token.
+   * Этапы:
+   * 1) Пытаемся войти напрямую в Ficto (`/client/auth/login`) несколькими
+   *    вариантами поля логина (email/username/login).
+   * 2) Если это похоже на auth-ошибку — запускаем fallback через miccedo.
+   *
+   * @param emailOrLogin Email или логин пользователя для прямого входа в Ficto.
+   * @param password Пароль пользователя для прямого входа в Ficto.
+   * @param options Опциональные учетные данные miccedo для fallback-ветки.
+   * @returns Объект с `access_token` и `refresh_token`.
    */
   async login(
     emailOrLogin: string,
-    password: string
-  ): Promise<{ access_token: string; refresh_token: string }> {
-    // Проверяем, является ли значение email-адресом
-    const isEmail = /^[a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z]{2,}$/.test(emailOrLogin);
-    
+    password: string,
+    options?: LoginOptions
+  ): Promise<TokenPair> {
+    // Проверяем, является ли значение email-адресом.
+    const isEmail = /^[a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z]{2,}$/.test(
+      emailOrLogin
+    )
+
     const baseLoginData = {
       password,
       remember_me: false,
@@ -77,91 +380,75 @@ export class ApiService {
         mobile: false,
         os: "Windows 10",
       },
-    };
+    }
 
-    // Если это email - используем поле email
+    const attempts: Array<{
+      desc: string
+      payload: Record<string, unknown>
+    }> = []
+
     if (isEmail) {
-      const loginData = {
-        ...baseLoginData,
-        email: emailOrLogin,
-      };
+      attempts.push({
+        desc: "ficto: email",
+        payload: { ...baseLoginData, email: emailOrLogin },
+      })
+    }
 
+    // Далее пробуем логин в разных полях — так же, как раньше, но без «раннего throw».
+    attempts.push(
+      {
+        desc: "ficto: username",
+        payload: { ...baseLoginData, username: emailOrLogin },
+      },
+      {
+        desc: "ficto: login",
+        payload: { ...baseLoginData, login: emailOrLogin },
+      },
+      {
+        desc: "ficto: email (fallback)",
+        payload: { ...baseLoginData, email: emailOrLogin },
+      }
+    )
+
+    let lastAuthError: unknown = null
+    for (const a of attempts) {
       try {
         const response = await axios.post(
           "https://api.ficto.ru/client/auth/login",
-          loginData
-        );
+          a.payload
+        )
+
         return {
           access_token: response.data.access_token,
           refresh_token: response.data.refresh_token,
-        };
-      } catch (error) {
-        this.handleRequestError(error, "Ошибка авторизации");
+        }
+      } catch (e) {
+        lastAuthError = e
       }
     }
 
-    // Для логина пробуем разные варианты полей
-    // Вариант 1: username
-    try {
-      const loginData = {
-        ...baseLoginData,
-        username: emailOrLogin,
-      };
-      const response = await axios.post(
-        "https://api.ficto.ru/client/auth/login",
-        loginData
-      );
-      return {
-        access_token: response.data.access_token,
-        refresh_token: response.data.refresh_token,
-      };
-    } catch (error) {
-      // Продолжаем пробовать другие варианты
+    // Важно: fallback в miccedo пробуем только при признаках ошибки аутентификации.
+    if (!this.isProbablyAuthFailure(lastAuthError)) {
+      throw new Error(
+        `Не удалось авторизоваться в Ficto. Ошибка: ${this.extractAxiosErrorMessage(
+          lastAuthError
+        )}`
+      )
     }
 
-    // Вариант 2: login
     try {
-      const loginData = {
-        ...baseLoginData,
-        login: emailOrLogin,
-      };
-      const response = await axios.post(
-        "https://api.ficto.ru/client/auth/login",
-        loginData
-      );
-      return {
-        access_token: response.data.access_token,
-        refresh_token: response.data.refresh_token,
-      };
-    } catch (error) {
-      // Продолжаем пробовать другие варианты
+      const miccedoLogin = options?.miccedoLogin ?? emailOrLogin
+      const miccedoPass = options?.miccedoPass ?? password
+      return await this.loginViaMiccedo(miccedoLogin, miccedoPass)
+    } catch (miccedoErr) {
+      throw new Error(
+        [
+          `Не удалось авторизоваться в Ficto с логином "${emailOrLogin}".`,
+          `Ficto error: ${this.extractAxiosErrorMessage(lastAuthError)}`,
+          `Miccedo fallback error: ${this.extractAxiosErrorMessage(miccedoErr)}`,
+        ].join(" ")
+      )
     }
-
-    // Вариант 3: все равно пробуем email (на случай, если API принимает логин в поле email)
-    let lastError: any = null;
-    try {
-      const loginData = {
-        ...baseLoginData,
-        email: emailOrLogin,
-      };
-      const response = await axios.post(
-        "https://api.ficto.ru/client/auth/login",
-        loginData
-      );
-      return {
-        access_token: response.data.access_token,
-        refresh_token: response.data.refresh_token,
-      };
-    } catch (error) {
-      lastError = error;
-    }
-
-    // Если ничего не сработало, выбрасываем ошибку с информацией о последней попытке
-    if (lastError && axios.isAxiosError(lastError) && lastError.response) {
-      const errorMsg = lastError.response.data?.message || JSON.stringify(lastError.response.data);
-      throw new Error(`Не удалось авторизоваться с логином "${emailOrLogin}". API вернул: ${errorMsg}`);
-    }
-    throw new Error(`Не удалось авторизоваться с логином "${emailOrLogin}". API Ficto может требовать email-адрес для авторизации.`);
   }
 
   /**

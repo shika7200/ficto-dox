@@ -75,7 +75,10 @@ export async function FictioFill(inputJson: InputJson): Promise<{ success: true 
   const password = inputJson.fictoPass
 
   // Авторизация и получение init-токенов
-  const { access_token } = await api.login(email, password)
+  const { access_token } = await api.login(email, password, {
+    miccedoLogin: inputJson.micceduLogin,
+    miccedoPass: inputJson.micceduPass,
+  })
   const uuid = await api.getUuid(access_token)
   const minRequiredTokens = shouldComplete ? 2 : 1
   const initTokens = await api.getInitTokens(uuid, access_token, {

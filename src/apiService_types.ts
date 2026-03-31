@@ -102,6 +102,9 @@ export interface InputJson {
   doxcellLogin: string;
   fictoLogin: string;
   fictoPass: string;
+  /** Опциональные учетные данные cabinet.miccedu.ru для fallback-авторизации. */
+  micceduLogin?: string;
+  micceduPass?: string;
   documentId: string;
   reportType?: ReportType;
   completeDocument?: boolean;
