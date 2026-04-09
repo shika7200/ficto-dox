@@ -42,11 +42,36 @@ export function shouldRetrySaveData(
   attempt: number,
   maxAttempts: number
 ): boolean {
+  const normalizedMessage = String(message ?? "");
+  const isBusyDocumentConflict =
+    status === 409 &&
+    normalizedMessage.includes("Инициирован процесс формирования документа");
+
   return (
-    status === 500 &&
-    String(message ?? "").includes("Необработанная ошибка") &&
+    ((
+      status === 500 &&
+      normalizedMessage.includes("Необработанная ошибка")
+    ) ||
+      isBusyDocumentConflict) &&
     attempt + 1 < maxAttempts
   );
+}
+
+export function saveDataRetryBackoffMs(
+  status: number | undefined,
+  message: string | undefined,
+  attempt: number
+): number {
+  const normalizedMessage = String(message ?? "");
+  const isBusyDocumentConflict =
+    status === 409 &&
+    normalizedMessage.includes("Инициирован процесс формирования документа");
+
+  // 409 from Ficto means document is temporarily busy (verification/build in progress).
+  // Use a longer, fixed pause to give backend time to finish.
+  if (isBusyDocumentConflict) return 5000;
+
+  return saveDataExponentialBackoffMs(attempt, 50);
 }
 
 export function saveDataExponentialBackoffMs(

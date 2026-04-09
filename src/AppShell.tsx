@@ -2,8 +2,9 @@ import React, { useState } from "react";
 import JsonFileUploader from "./JsonFileUploader";
 import JsonDocumentCheckUploader from "./JsonDocumentCheckUploader";
 import AccountsCheckUploader from "./AccountsCheckUploader";
+import JsonUnlockDocumentUploader from "./JsonUnlockDocumentUploader";
 
-type Mode = "fill" | "checkDoc" | "checkAccounts";
+type Mode = "fill" | "checkDoc" | "checkAccounts" | "unlockDoc";
 
 const btn = (active: boolean) =>
   ({
@@ -50,11 +51,18 @@ const AppShell: React.FC = () => {
         >
           Проверка аккаунтов (XLSX)
         </button>
+        <button
+          onClick={() => setMode("unlockDoc")}
+          style={btn(mode === "unlockDoc")}
+        >
+          Снятие блокировки (JSON)
+        </button>
       </div>
 
       {mode === "fill" && <JsonFileUploader />}
       {mode === "checkDoc" && <JsonDocumentCheckUploader />}
       {mode === "checkAccounts" && <AccountsCheckUploader />}
+      {mode === "unlockDoc" && <JsonUnlockDocumentUploader />}
     </div>
   );
 };

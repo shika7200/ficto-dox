@@ -22,6 +22,31 @@ export function shouldProbeAlternativeToken(
   return String(msg).includes("Необработанная ошибка")
 }
 
+export function isBusyDocumentSaveConflict(err: unknown): boolean {
+  const e = err as any
+  const msg = String(e?.response?.data?.message ?? e?.message ?? "")
+  const status = e?.response?.status
+  return (
+    (status === 409 || msg.includes("Статус 409")) &&
+    msg.includes("Инициирован процесс формирования документа")
+  )
+}
+
+function isForbiddenPanelError(err: unknown): boolean {
+  const e = err as any
+  const msg = String(e?.response?.data?.message ?? e?.message ?? "")
+  return msg.includes("Статус 409") && msg.includes("Запрещено использование данной панели")
+}
+
+function isCancelForbiddenForCurrentStatus(err: unknown): boolean {
+  const e = err as any
+  const msg = String(e?.response?.data?.message ?? e?.message ?? "")
+  return (
+    msg.includes("Статус 409") &&
+    msg.includes("запрещено изменение статуса отчета")
+  )
+}
+
 /**
  * Заполняет все секции в Ficto. Возвращает { success: true } при успешном выполнении.
  */
@@ -135,6 +160,52 @@ export async function FictioFill(inputJson: InputJson): Promise<{ success: true 
     }
   }
 
+  const statusPanelCandidates = [
+    statusPanelId,
+    checkErrorsPanelId,
+    ...Object.values(panelIdBySection ?? {}),
+  ]
+    .filter((v): v is number => typeof v === "number" && Number.isFinite(v) && v > 0)
+    .filter((v, idx, arr) => arr.indexOf(v) === idx)
+
+  const unlockBusyDocumentIfPossible = async (): Promise<boolean> => {
+    if (!documentId || statusPanelCandidates.length === 0) return false
+
+    for (const candidatePanelId of statusPanelCandidates) {
+      try {
+        const status = await api.getDocumentStatus(documentId, candidatePanelId, statusToken)
+        if (!status.document.disabled_complite) return true
+
+        try {
+          await api.cancelDocumentLock(
+            documentId,
+            status.document.build_id,
+            candidatePanelId,
+            statusToken
+          )
+          return true
+        } catch (cancelErr) {
+          if (!isCancelForbiddenForCurrentStatus(cancelErr)) {
+            throw cancelErr
+          }
+          await api.revokeSignature(
+            documentId,
+            status.document.build_id,
+            candidatePanelId,
+            statusToken
+          )
+          return true
+        }
+      } catch (statusErr) {
+        if (isForbiddenPanelError(statusErr)) continue
+        // Any other error means this unlock attempt is not reliable.
+        break
+      }
+    }
+
+    return false
+  }
+
   const afterSectionSavedIfNeeded = async () => {
     if (
       reportConfig.runCheckErrorsAfterEachSection &&
@@ -240,6 +311,16 @@ export async function FictioFill(inputJson: InputJson): Promise<{ success: true 
       panelTokenIndex.set(panelId, tokenIdx)
       await afterSectionSavedIfNeeded()
     } catch (err) {
+      if (isBusyDocumentSaveConflict(err)) {
+        const unlocked = await unlockBusyDocumentIfPossible()
+        if (unlocked) {
+          await sendSectionRequest(token, String(sectionKey), requestData)
+          panelTokenIndex.set(panelId, tokenIdx)
+          await afterSectionSavedIfNeeded()
+          continue
+        }
+      }
+
       // In strict page binding mode we do not probe other tokens/articles.
       if (shouldProbeAlternativeToken(strictPageBinding, err)) {
         let recovered = false

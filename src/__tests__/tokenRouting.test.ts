@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   chooseTokenIndexForPanel,
+  isBusyDocumentSaveConflict,
   shouldProbeAlternativeToken,
 } from "../fictioFill";
 
@@ -31,6 +32,20 @@ describe("panel token routing", () => {
         response: { status: 400, data: { message: "Bad Request" } },
       })
     ).toBe(false);
+  });
+
+  it("detects temporary busy-document 409 save conflict", () => {
+    expect(
+      isBusyDocumentSaveConflict({
+        response: {
+          status: 409,
+          data: {
+            message:
+              "Инициирован процесс формирования документа и/или его верификации на предмет наличия ошибок. Внесение данных невозможно.",
+          },
+        },
+      })
+    ).toBe(true);
   });
 });
 

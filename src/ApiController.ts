@@ -6,6 +6,7 @@ import { processAllUsers } from './ ProcessAllHandler'
 import { DocumentCheckErrorsError } from './documentCheckErrorsError'
 import { FictioCheckOnly } from './fictioCheckOnly'
 import { FictioFill } from './fictioFill'
+import { FictioUnlockDocument } from './fictioUnlockDocument'
 import { buildCheckAccountsXlsx, checkAccounts, CheckAccountInputRow } from './CheckAccountsHandler'
 
 
@@ -152,6 +153,24 @@ app.post('/api/checkDocument', async ({ body }) => {
   try {
     const inputJson = (await body) as InputJson
     const result = await FictioCheckOnly(inputJson)
+    return new Response(
+      JSON.stringify({ success: true, ...result }),
+      { headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } }
+    )
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    return new Response(
+      JSON.stringify({ error: message }),
+      { status: 500, headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } }
+    )
+  }
+})
+
+// Снятие блокировки документа по JSON (status -> cancel)
+app.post('/api/unlockDocument', async ({ body }) => {
+  try {
+    const inputJson = (await body) as InputJson
+    const result = await FictioUnlockDocument(inputJson)
     return new Response(
       JSON.stringify({ success: true, ...result }),
       { headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } }

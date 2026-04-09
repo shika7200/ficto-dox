@@ -11,7 +11,7 @@ import {
 import {
   buildSaveDataHeaders,
   prepareSaveDataPayload,
-  saveDataExponentialBackoffMs,
+  saveDataRetryBackoffMs,
   shouldRetrySaveData,
   type SaveDataNormalizationPolicy,
 } from "./saveDataPolicy";
@@ -24,12 +24,12 @@ type TokenPair = {
 type LoginOptions = {
   /**
    * Логин от `cabinet.miccedu.ru` для fallback-авторизации.
-   * Если не задан, используется `emailOrLogin` из обычного входа.
+   * Если не задан или пустой (`""`/пробелы), используется `emailOrLogin` из обычного входа.
    */
   miccedoLogin?: string;
   /**
    * Пароль от `cabinet.miccedu.ru` для fallback-авторизации.
-   * Если не задан, используется `password` из обычного входа.
+   * Если не задан или пустой (`""`/пробелы), используется `password` из обычного входа.
    */
   miccedoPass?: string;
 };
@@ -365,6 +365,21 @@ export class ApiService {
     password: string,
     options?: LoginOptions
   ): Promise<TokenPair> {
+    const explicitMicceduLogin =
+      typeof options?.miccedoLogin === "string" && options.miccedoLogin.trim()
+        ? options.miccedoLogin
+        : undefined
+    const explicitMicceduPass =
+      typeof options?.miccedoPass === "string" && options.miccedoPass.trim()
+        ? options.miccedoPass
+        : undefined
+
+    // Если в JSON явно заданы непустые miccedu-логин и пароль —
+    // считаем, что пользователь хочет авторизацию через cabinet.miccedu.ru в первую очередь.
+    if (explicitMicceduLogin && explicitMicceduPass) {
+      return this.loginViaMiccedo(explicitMicceduLogin, explicitMicceduPass)
+    }
+
     // Проверяем, является ли значение email-адресом.
     const isEmail = /^[a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z]{2,}$/.test(
       emailOrLogin
@@ -437,8 +452,8 @@ export class ApiService {
     }
 
     try {
-      const miccedoLogin = options?.miccedoLogin ?? emailOrLogin
-      const miccedoPass = options?.miccedoPass ?? password
+      const miccedoLogin = explicitMicceduLogin ?? emailOrLogin
+      const miccedoPass = explicitMicceduPass ?? password
       return await this.loginViaMiccedo(miccedoLogin, miccedoPass)
     } catch (miccedoErr) {
       throw new Error(
@@ -460,24 +475,44 @@ export class ApiService {
    */
   async getUuid(access_token: string): Promise<string> {
     try {
-      const response = await axios.get(
+      const headers = { Authorization: `Bearer ${access_token}` }
+
+      const extractUuidFromResponse = (data: unknown): string => {
+        const d = data as any
+        const candidates: Array<any> =
+          (Array.isArray(d?.items) ? d.items : []) ||
+          (Array.isArray(d?.grants) ? d.grants : [])
+        const first = candidates.find((x) => typeof x?.uuid === "string" && x.uuid.trim())
+        return first?.uuid ?? ""
+      }
+
+      const attempts: string[] = []
+
+      const tryUrls = [
         "https://api.ficto.ru/client/grants?avalible=true&page=1",
-        {
-          headers: { Authorization: `Bearer ${access_token}` },
-        }
-      );
-      let uuid = "";
-      if (
-        response.data &&
-        Array.isArray(response.data.items) &&
-        response.data.items.length > 0
-      ) {
-        uuid = response.data.items[0].uuid;
+        "https://api.ficto.ru/client/grants?avalible=true&page=2",
+        "https://api.ficto.ru/client/grants?avalible=true&page=3",
+        "https://api.ficto.ru/client/grants?avalible=false&page=1",
+        "https://api.ficto.ru/client/grants?avalible=false&page=2",
+        "https://api.ficto.ru/client/grants?avalible=false&page=3",
+        "https://api.ficto.ru/client/grants?page=1",
+        "https://api.ficto.ru/client/grants?page=2",
+        "https://api.ficto.ru/client/grants?page=3",
+      ]
+
+      for (const url of tryUrls) {
+        attempts.push(url)
+        const response = await axios.get(url, { headers })
+        const uuid = extractUuidFromResponse(response.data)
+        if (uuid) return uuid
       }
-      if (!uuid) {
-        throw new Error("Нет доступных грантов (UUID не найден)");
-      }
-      return uuid;
+
+      throw new Error(
+        `Нет доступных грантов (UUID не найден). Попытки: ${attempts.slice(
+          0,
+          5
+        )}${attempts.length > 5 ? "..." : ""}`
+      )
     } catch (error) {
       this.handleRequestError(error, "Ошибка получения UUID");
     }
@@ -529,6 +564,40 @@ export class ApiService {
       return initTokens;
     } catch (error) {
       this.handleRequestError(error, "Ошибка получения init_tokens");
+    }
+  }
+
+  /**
+   * Получает init_token для конкретного workspace индекса.
+   *
+   * @param uuid - UUID гранта.
+   * @param access_token - Bearer токен.
+   * @param workspaceIndex - Индекс workspace (например, 21).
+   */
+  async getInitTokenByWorkspaceIndex(
+    uuid: string,
+    access_token: string,
+    workspaceIndex: number
+  ): Promise<string> {
+    try {
+      const response = await axios.get(
+        `https://api.ficto.ru/client/workspace/${uuid}/${workspaceIndex}`,
+        {
+          headers: { Authorization: `Bearer ${access_token}` },
+        }
+      );
+      const tokenValue = response.data?.item?.init_token;
+      if (!tokenValue) {
+        throw new Error(
+          `Init token не найден для workspace ${workspaceIndex}`
+        );
+      }
+      return tokenValue;
+    } catch (error) {
+      this.handleRequestError(
+        error,
+        `Ошибка получения init_token для workspace ${workspaceIndex}`
+      );
     }
   }
 
@@ -646,7 +715,7 @@ export class ApiService {
     });
     const config: AxiosRequestConfig = makeConfig(preparedBody);
 
-    const maxAttempts = 3;
+    const maxAttempts = 20;
     let lastErr: any = null;
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -669,7 +738,7 @@ export class ApiService {
         const message = err?.response?.data?.message ?? err?.message;
 
         if (shouldRetrySaveData(status, message, attempt, maxAttempts)) {
-          const backoffMs = saveDataExponentialBackoffMs(attempt, 50);
+          const backoffMs = saveDataRetryBackoffMs(status, message, attempt);
           // Avoid real timers in unit tests to keep runs deterministic/fast.
           if (process.env.NODE_ENV !== "test" && backoffMs > 0) {
             await new Promise((r) => setTimeout(r, backoffMs));
@@ -734,7 +803,7 @@ export class ApiService {
       decompress: false,
     };
 
-    const maxAttempts = 3;
+    const maxAttempts = 20;
     let lastErr: any = null;
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -746,7 +815,7 @@ export class ApiService {
         const status = err?.response?.status as number | undefined;
         const message = err?.response?.data?.message ?? err?.message;
         if (shouldRetrySaveData(status, message, attempt, maxAttempts)) {
-          const backoffMs = saveDataExponentialBackoffMs(attempt, 50);
+          const backoffMs = saveDataRetryBackoffMs(status, message, attempt);
           if (process.env.NODE_ENV !== "test" && backoffMs > 0) {
             await new Promise((r) => setTimeout(r, backoffMs));
           }
